@@ -117,6 +117,8 @@ export function createEditor(element, { onUpdate, getCurrentDir, uploadImage, do
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
+        // 编辑时点击链接不跳转，避免 WebView 离开编辑器
+        link: { openOnClick: false },
       }),
       Image.configure({ inline: false, allowBase64: true }).extend({
         renderHTML({ node, HTMLAttributes }) {
@@ -136,7 +138,7 @@ export function createEditor(element, { onUpdate, getCurrentDir, uploadImage, do
         element: bubbleElement,
         shouldShow: ({ editor: e, state }) =>
           !state.selection.empty && !e.isActive('image'),
-        options: { placement: 'top', offset: 8 },
+        options: { strategy: 'fixed', placement: 'top', offset: 8 },
       }),
       Markdown.configure({
         html: true, // 高亮等 markdown 没有的格式以 <mark> 等 HTML 往返

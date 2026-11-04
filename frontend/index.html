@@ -9,16 +9,37 @@
   <div id="app">
     <header class="titlebar">
       <div class="title-left">
-        <button id="btn-open" title="打开 (Ctrl+O)">打开</button>
-        <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
-        <button id="btn-save-as" title="另存为">另存为</button>
-        <button id="tb-insert" title="插入 3x3 表格">表格</button>
+        <button id="btn-open" class="icon-btn" title="打开 (Ctrl+O；按设置的打开方式处理)">
+          <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button id="btn-save" class="icon-btn" title="保存 (Ctrl+S)">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        </button>
+        <button id="btn-save-as" class="icon-btn" title="另存为">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="tb-insert" class="icon-btn" title="插入 3x3 表格">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
+        <button id="tb-link" class="icon-btn" title="插入链接">
+          <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
       </div>
       <div class="title-center" id="file-title">未命名</div>
       <div class="title-right">
-        <button id="btn-outline" title="显示 / 隐藏目录大纲">大纲</button>
-        <button id="btn-settings" title="设置">设置</button>
-        <button id="btn-mode" title="切换源码 / 所见即所得 (Ctrl+/)">源码模式</button>
+        <button id="btn-theme" class="icon-btn" title="切换明暗主题">
+          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button id="btn-outline" class="icon-btn" title="显示 / 隐藏目录大纲">
+          <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        </button>
+        <button id="btn-settings" class="icon-btn" title="设置">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button id="btn-mode" class="icon-btn" title="切换源码 / 所见即所得 (Ctrl+/)">
+          <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </button>
       </div>
     </header>
 
@@ -53,6 +74,7 @@
       <span id="status-words">0 字</span>
       <span id="status-mode">所见即所得</span>
       <span id="status-dirty"></span>
+      <span id="status-path" class="status-path"></span>
     </footer>
   </div>
 
@@ -79,7 +101,14 @@
         </div>
       </div>
       <div class="form-row">
-        <label for="set-open-action">已有窗口运行时，再次打开 .md 文件</label>
+        <label for="set-theme">主题</label>
+        <select id="set-theme">
+          <option value="dark">暗色（默认）</option>
+          <option value="light">亮色</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="set-open-action">应用内已打开文档时，再打开其他 .md 文件（打开按钮 / 拖拽）</label>
         <select id="set-open-action">
           <option value="ask">每次询问（当前窗口 / 新窗口）</option>
           <option value="current">总是在当前窗口打开</option>
@@ -101,6 +130,20 @@
     </div>
   </div>
 
+  <!-- 拖拽打开方式询问 -->
+  <div id="open-target-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>如何打开这个文件？</h3>
+      <p class="hint" id="open-target-name"></p>
+      <p class="hint">想修改默认行为，可到「设置」里调整。</p>
+      <div class="modal-actions">
+        <button id="btn-open-target-cancel">取消</button>
+        <button id="btn-open-target-new">新窗口打开</button>
+        <button id="btn-open-target-current" class="primary">当前窗口打开</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 启动页：新建 / 打开 / 拖拽 -->
   <div id="welcome-screen" class="welcome-screen hidden">
     <div class="welcome-card">
@@ -110,10 +153,9 @@
         <button id="wc-new" class="primary">新建空白文档</button>
         <button id="wc-open">打开文档</button>
       </div>
-      <div id="wc-dropzone" class="dropzone">
-        <div class="dropzone-icon">⇩</div>
-        <div>把 .md 文件拖到这里打开</div>
-        <div class="dropzone-sub">也支持直接拖入图片插入文档</div>
+      <div id="wc-recent" class="recent-list hidden">
+        <div class="recent-title">最近打开</div>
+        <div id="wc-recent-items" class="recent-items"></div>
       </div>
     </div>
   </div>
@@ -135,13 +177,35 @@
     </div>
   </div>
 
-  <!-- 启动时草稿恢复 -->
-  <div id="drafts-overlay" class="modal-overlay hidden">
+  <!-- 插入链接 -->
+  <div id="link-overlay" class="modal-overlay hidden">
     <div class="modal">
-      <h3>发现未保存的草稿</h3>
-      <div id="drafts-list" class="drafts-list"></div>
+      <h3>插入链接</h3>
+      <div class="form-row">
+        <label for="link-text">链接名称</label>
+        <input id="link-text" type="text" placeholder="显示的文字" />
+      </div>
+      <div class="form-row">
+        <label for="link-url">链接地址</label>
+        <input id="link-url" type="text" placeholder="https://example.com" />
+      </div>
       <div class="modal-actions">
-        <button id="btn-drafts-close">暂不处理</button>
+        <button id="btn-link-cancel">取消</button>
+        <button id="btn-link-ok" class="primary">插入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关闭前：未保存内容询问 -->
+  <div id="unsaved-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>文档尚未保存</h3>
+      <p class="hint" id="unsaved-name"></p>
+      <p class="hint">保留：先保存当前内容（未命名文档会弹出保存位置）；废弃：本次修改不再保留。</p>
+      <div class="modal-actions">
+        <button id="btn-unsaved-cancel">取消</button>
+        <button id="btn-unsaved-discard">废弃</button>
+        <button id="btn-unsaved-save" class="primary">保留</button>
       </div>
     </div>
   </div>

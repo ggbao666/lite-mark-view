@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"embed"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/energye/systray"
@@ -19,14 +17,13 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	syswin "golang.org/x/sys/windows"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed build/appicon.png
-var trayIconBytes []byte
+//go:embed build/windows/icon.ico
+var trayIconBytes []byte // Windows 托盘要求 .ico 格式
 
 // viewerMode 图片查看器进程模式（--image-viewer 启动时为 true）
 var viewerMode = false
@@ -36,46 +33,6 @@ var forceQuit = false
 
 // singleInstanceAddr 单实例通信地址：第二实例通过 HTTP 通知第一实例后退出
 const singleInstanceAddr = "127.0.0.1:27182"
-
-// decideOpenAction 决定已有实例运行时如何打开文件：
-// 先看设置记忆，未记忆（ask）时弹系统对话框询问用户
-func decideOpenAction(path string) string {
-	s := loadSettings()
-	if s.OpenAction == "current" || s.OpenAction == "new" {
-		return s.OpenAction
-	}
-
-	name := "新文件"
-	if path != "" {
-		name = filepath.Base(path)
-	}
-	text := fmt.Sprintf("检测到 Typora Lite 已在运行。\n\n"+
-		"「是」— 在已打开的窗口中打开「%s」\n"+
-		"「否」— 在新窗口中打开「%s」\n"+
-		"「取消」— 不打开", name, name)
-
-	const (
-		mbYesNoCancel = 0x3
-		mbIconQ       = 0x20
-		mbTopMost     = 0x40000
-		idYes         = 6
-		idNo          = 7
-	)
-	r, _ := syswin.MessageBox(0, utf16Ptr(text), utf16Ptr("Typora Lite"), mbYesNoCancel|mbIconQ|mbTopMost)
-	switch r {
-	case idYes:
-		return "current"
-	case idNo:
-		return "new"
-	default:
-		return "cancel"
-	}
-}
-
-func utf16Ptr(s string) *uint16 {
-	p, _ := syscall.UTF16PtrFromString(s)
-	return p
-}
 
 // localFileHandler 提供本地磁盘文件预览：
 // /local-file?path=<绝对路径> 用于在编辑器/查看器中显示本地图片
@@ -101,8 +58,8 @@ func localFileHandler() http.Handler {
 	})
 }
 
-// notifyExistingInstance 尝试通知已在运行的实例（打开文件或唤出窗口），
-// 成功返回 true（当前实例应立即退出）
+// notifyExistingInstance 尝试通知已在运行的实例（打开文件或唤出窗口）。
+// 校验专属响应头，防止端口被其他程序或调试残留进程占用时被误劫持。
 func notifyExistingInstance(path string) bool {
 	action := "/show"
 	if path != "" {
@@ -113,12 +70,13 @@ func notifyExistingInstance(path string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK &&
+		resp.Header.Get("X-Typora-Lite") == "pong"
 }
 
 // runTray 系统托盘：显示主窗口 / 完全退出
-func runTray(ctx context.Context) {
+func runTray(ctx context.Context, a *App) {
 	systray.Run(func() {
 		systray.SetIcon(trayIconBytes)
 		systray.SetTooltip("Typora Lite")
@@ -129,7 +87,7 @@ func runTray(ctx context.Context) {
 		mShow.Click(func() {
 			if ctx != nil {
 				forceQuit = false
-				wailsruntime.WindowShow(ctx)
+				a.showMainWindow()
 			}
 		})
 		mQuit.Click(func() {
@@ -157,6 +115,13 @@ func (v *Viewer) ImagePath() string { return v.path }
 // runImageViewer 以独立窗口模式运行图片查看器
 func runImageViewer(path string) {
 	v := &Viewer{path: path}
+
+	// 查看器窗口主题跟随设置
+	winTheme := windows.Dark
+	if loadSettings().Theme == "light" {
+		winTheme = windows.Light
+	}
+
 	err := wails.Run(&options.App{
 		Title:  "图片查看 - " + filepath.Base(path),
 		Width:  960,
@@ -171,7 +136,7 @@ func runImageViewer(path string) {
 			v,
 		},
 		Windows: &windows.Options{
-			Theme: windows.Light,
+			Theme: winTheme,
 		},
 	})
 	if err != nil {
@@ -200,7 +165,12 @@ func main() {
 
 	// 位置参数：要打开的 .md 文件路径（文件关联 / 拖到 exe 上）
 	openPath := ""
+	newWindowFlag := false
 	for _, a := range args {
+		if strings.EqualFold(a, "--new-window") {
+			newWindowFlag = true
+			continue
+		}
 		if strings.HasPrefix(a, "-") {
 			continue
 		}
@@ -210,38 +180,30 @@ func main() {
 	// 单实例：尝试占用通信端口；被占用说明已有实例运行
 	ln, err := net.Listen("tcp", singleInstanceAddr)
 	if err != nil {
-		if openPath == "" {
-			// 无文件参数（直接双击 exe）→ 唤出已有窗口即可，不询问
+		if openPath == "" && !newWindowFlag {
+			// 无文件参数（直接双击 exe）→ 唤出已有窗口即可
 			if notifyExistingInstance("") {
 				return
 			}
-			ln = nil // 通知失败 → 降级为新窗口启动
-		} else {
-			// 带文件 → 按设置决定：当前窗口 / 新窗口 / 询问
-			action := decideOpenAction(openPath)
-			switch action {
-			case "current":
-				if notifyExistingInstance(openPath) {
-					return // 已交给现有窗口处理
-				}
-				// 通知失败（端口被非本应用占用等）→ 降级为新窗口继续启动
-			case "new":
-				// 新窗口多实例启动
-			default:
-				return // 用户取消
-			}
-			ln = nil
 		}
+		// 带文件（双击/右键打开方式）或明确新窗口 → 直接新窗口打开，不询问
+		ln = nil
 	}
 
 	app := NewApp()
 	app.startupPath = openPath
 	app.ln = ln
 
+	// 原生窗口主题跟随设置（默认暗色）
+	winTheme := windows.Dark
+	if app.settings.Theme == "light" {
+		winTheme = windows.Light
+	}
+
 	err = wails.Run(&options.App{
 		Title:  "Typora Lite",
-		Width:  1080,
-		Height: 760,
+		Width:  900,
+		Height: 640,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true, // 文件拖放统一由 wails 事件处理，避免 webview 直接打开
@@ -259,7 +221,7 @@ func main() {
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
-			Theme:                windows.Light,
+			Theme:                winTheme,
 		},
 	})
 

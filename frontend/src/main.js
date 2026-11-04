@@ -22,20 +22,26 @@ const elModeBtn = $('btn-mode')
 const elWords = $('status-words')
 const elMode = $('status-mode')
 const elDirty = $('status-dirty')
+const elPath = $('status-path')
 const elTiptapWrap = $('tiptap-editor')
 const elCmWrap = $('codemirror-editor')
 
 // ---------- 状态 ----------
 let currentPath = '' // 显示用文件路径
-let currentDraft = '' // 未命名文档对应的草稿文件路径（自动保存用）
 let dirty = false
 let mode = 'wysiwyg' // 'wysiwyg' | 'source'
 let docOpen = false // 是否已进入编辑状态（新建/打开后为 true，启动页不再出现）
+let loading = false // 程序性装载内容期间为 true（此时编辑器变更不算用户编辑）
 
 function baseName(p) {
   if (!p) return '未命名'
   const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
   return i >= 0 ? p.slice(i + 1) : p
+}
+
+// 标题栏显示用文件名（隐藏 .md 扩展名）
+function displayName(p) {
+  return baseName(p).replace(/\.(md|markdown)$/i, '')
 }
 
 function dirName(p) {
@@ -45,9 +51,74 @@ function dirName(p) {
 }
 
 function refreshHeader() {
-  elTitle.textContent = baseName(currentPath) + (dirty ? ' ●' : '')
+  elTitle.textContent = displayName(currentPath) + (dirty ? ' ●' : '')
+  elTitle.title = currentPath ? '点击重命名' : ''
   elDirty.textContent = dirty ? '未保存' : '已保存'
+  // 状态栏显示文件所在目录；未命名/未保存时不显示
+  const dir = dirName(currentPath)
+  elPath.textContent = dir
+  elPath.title = dir
 }
+
+// ---------- 标题栏点击重命名 ----------
+let renaming = false
+
+async function startRename() {
+  if (renaming) return
+  if (!currentPath) {
+    elDirty.textContent = '请先保存文件后再重命名'
+    return
+  }
+  renaming = true
+
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'title-input'
+  input.value = displayName(currentPath)
+  elTitle.textContent = ''
+  elTitle.appendChild(input)
+  input.focus()
+  input.select()
+
+  let done = false
+  const finish = async (commit) => {
+    if (done) return
+    done = true
+    const val = input.value.trim()
+    elTitle.textContent = ''
+    renaming = false
+
+    if (commit && val && val !== displayName(currentPath)) {
+      const app = wails()
+      if (app) {
+        try {
+          const newPath = await app.RenameFile(val)
+          if (newPath) currentPath = newPath
+        } catch (e) {
+          alert('重命名失败: ' + e)
+        }
+      }
+    }
+    refreshHeader()
+    if (!commit) editor.commands.focus()
+  }
+
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      finish(true)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      finish(false)
+    }
+  })
+  input.addEventListener('blur', () => finish(true))
+  // 点击输入框内不触发外层点击
+  input.addEventListener('click', (e) => e.stopPropagation())
+}
+
+elTitle.addEventListener('click', startRename)
 
 function refreshStats(md) {
   elWords.textContent = `${countWords(md)} 字`
@@ -61,7 +132,7 @@ function markDirty() {
   scheduleAutoSave()
 }
 
-// ---------- 自动保存（防抖 2s；未命名时写入软件目录草稿） ----------
+// ---------- 自动保存（防抖 2s，仅用于已命名的文件） ----------
 let autoSaveTimer = null
 
 function scheduleAutoSave() {
@@ -76,28 +147,15 @@ function nowTime() {
 async function autoSave() {
   const app = wails()
   if (!app) return
+  if (!currentPath) return // 未命名文档不自动保存；关闭时询问「保留 / 废弃」
   try {
-    const md = currentMarkdown()
-    if (currentPath) {
-      await app.SaveMarkdown(md)
-    } else {
-      currentDraft = await app.AutoSaveDraft(currentDraft, md)
-    }
+    await app.SaveMarkdown(currentMarkdown())
     dirty = false
     refreshHeader()
     elDirty.textContent = `已自动保存 ${nowTime()}`
   } catch (e) {
     console.error('自动保存失败', e)
   }
-}
-
-// 正式保存成功后清理对应草稿
-function cleanupDraft() {
-  const app = wails()
-  if (currentDraft && app) {
-    app.DeleteDraft(currentDraft).catch(() => {})
-  }
-  currentDraft = ''
 }
 
 // ---------- 图片上传（落盘到 Go 端，按设置决定位置） ----------
@@ -151,9 +209,21 @@ editor.on('transaction', () => {
   })
 })
 
+// 滚动时隐藏气泡（wails 气泡只在新事务时重新评估，滚动不会触发，
+// 不处理会滞留并错位；重新选中文本时它会自动再出现）
+const hideBubbleOnScroll = () => {
+  // 只改 visibility：气泡再次展示时 Tiptap 会把 visibility 设回 visible
+  bubbleEl.style.visibility = 'hidden'
+}
+// 编辑区滚动容器（注意：$ 是 getElementById 的简写，此处须用 querySelector）
+const editorScrollWrap = document.querySelector('.editor-wrap')
+editorScrollWrap?.addEventListener('scroll', hideBubbleOnScroll, { passive: true })
+window.addEventListener('wheel', hideBubbleOnScroll, { passive: true })
+
 // ---------- CodeMirror ----------
 const cm = createSourceEditor(elCmWrap, {
   onChange: (text) => {
+    if (loading) return // 打开/装载文件时的程序性变更，不是用户编辑
     setMarkdown(editor, text) // 实时同步进 tiptap（不触发其 onUpdate）
     markDirty()
     refreshStats(text)
@@ -167,7 +237,9 @@ function setMode(next) {
   if (next === mode) return
   mode = next
   if (mode === 'source') {
-    setSourceDoc(cm, getMarkdown(editor))
+    loading = true
+    setSourceDoc(cm, getMarkdown(editor)) // 程序性装载，不标脏
+    loading = false
     elTiptapWrap.classList.add('hidden')
     elCmWrap.classList.remove('hidden')
     elModeBtn.textContent = '所见即所得'
@@ -190,6 +262,73 @@ elModeBtn.addEventListener('click', () =>
 // ---------- 表格：标题栏插入 + 表格内右键菜单 ----------
 $('tb-insert').addEventListener('click', () => {
   editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+})
+
+// ---------- 插入链接：[链接名称](链接地址) ----------
+const linkOverlay = $('link-overlay')
+const linkTextInput = $('link-text')
+const linkUrlInput = $('link-url')
+let linkRange = null // 打开弹窗时的选区（弹窗期间编辑器会失焦）
+
+function openLinkDialog() {
+  const { from, to } = editor.state.selection
+  const selected = from !== to ? editor.state.doc.textBetween(from, to, ' ') : ''
+  linkRange = { from, to }
+  linkTextInput.value = selected
+  linkUrlInput.value = ''
+  linkOverlay.classList.remove('hidden')
+  // 已有选中文字时名称已填好，直接输入地址
+  ;(selected ? linkUrlInput : linkTextInput).focus()
+}
+
+function closeLinkDialog() {
+  linkOverlay.classList.add('hidden')
+  linkTextInput.value = ''
+  linkUrlInput.value = ''
+  linkRange = null
+}
+
+function insertLink() {
+  const url = linkUrlInput.value.trim()
+  if (!url) {
+    linkUrlInput.focus()
+    return
+  }
+  // 名称为空时用地址代替
+  const text = linkTextInput.value.trim() || url
+  const sel = linkRange
+  closeLinkDialog()
+  const chain = editor.chain().focus()
+  if (sel) chain.setTextSelection(sel)
+  // 有选区时替换选中内容；无选区时插入到光标处
+  chain
+    .insertContent({
+      type: 'text',
+      text,
+      marks: [{ type: 'link', attrs: { href: url } }],
+    })
+    .run()
+  editor.commands.focus()
+}
+
+$('tb-link').addEventListener('click', openLinkDialog)
+$('btn-link-cancel').addEventListener('click', closeLinkDialog)
+$('btn-link-ok').addEventListener('click', insertLink)
+for (const input of [linkTextInput, linkUrlInput]) {
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      insertLink()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      closeLinkDialog()
+    }
+  })
+}
+// 模态：点遮罩不关闭，Esc 关闭（避免误操作背后内容）
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !linkOverlay.classList.contains('hidden')) closeLinkDialog()
 })
 
 // 判断文档坐标 pos 是否位于表格内
@@ -310,6 +449,11 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') hideCtxMenu()
 })
 
+// 右键菜单（表格/图片）滚动时关闭：fixed 定位不跟随内容滚动，滞留会错位
+const hideCtxMenuOnScroll = () => hideCtxMenu()
+editorScrollWrap?.addEventListener('scroll', hideCtxMenuOnScroll, { passive: true })
+window.addEventListener('wheel', hideCtxMenuOnScroll, { passive: true })
+
 // ---------- 右侧目录大纲（默认折叠） ----------
 const outlinePanel = $('outline-panel')
 const outlineList = $('outline-list')
@@ -383,10 +527,8 @@ function jumpToHeading(item) {
 function applyOpenedFile(data) {
   hideWelcome()
   clearTimeout(autoSaveTimer)
-  cleanupDraft() // 之前的未命名草稿不再关联当前文档
   // Go 结构体 JSON 字段为小写（json tag）
   currentPath = data.path || ''
-  currentDraft = ''
   dirty = false
   docOpen = true
   loadContent(data.content ?? '')
@@ -397,9 +539,7 @@ function applyOpenedFile(data) {
 function newDocument() {
   hideWelcome()
   clearTimeout(autoSaveTimer)
-  cleanupDraft()
   currentPath = ''
-  currentDraft = ''
   dirty = false
   docOpen = true
   loadContent('')
@@ -407,35 +547,167 @@ function newDocument() {
   editor.commands.focus()
 }
 
-// ---------- 启动页（新建 / 打开 / 拖拽） ----------
+// ---------- 启动页（新建 / 打开 / 最近打开） ----------
 const welcomeScreen = $('welcome-screen')
+const recentListEl = $('wc-recent')
+const recentItemsEl = $('wc-recent-items')
 
 function showWelcome() {
   welcomeScreen.classList.remove('hidden')
+  refreshRecentFiles()
 }
 
 function hideWelcome() {
   welcomeScreen.classList.add('hidden')
 }
 
+// 渲染最近打开的文件（点击直接打开）
+async function refreshRecentFiles() {
+  const app = wails()
+  let list = []
+  if (app) {
+    try {
+      list = (await app.GetRecentFiles()) || []
+    } catch {
+      list = []
+    }
+  }
+  recentItemsEl.innerHTML = ''
+  if (!list.length) {
+    recentListEl.classList.add('hidden')
+    return
+  }
+  for (const p of list) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'recent-item'
+    btn.title = p
+    const name = document.createElement('span')
+    name.className = 'recent-name'
+    name.textContent = displayName(p)
+    const dir = document.createElement('span')
+    dir.className = 'recent-dir'
+    dir.textContent = dirName(p)
+    btn.append(name, dir)
+    btn.addEventListener('click', () => openRecentFile(p))
+    recentItemsEl.appendChild(btn)
+  }
+  recentListEl.classList.remove('hidden')
+}
+
+async function openRecentFile(path) {
+  const app = wails()
+  if (!app) return
+  try {
+    const data = await app.OpenPath(path)
+    applyOpenedFile(data)
+  } catch (e) {
+    alert('打开失败：' + (e?.message || e))
+    // 文件可能已被移动/删除，刷新列表
+    refreshRecentFiles()
+  }
+}
+
 $('wc-new').addEventListener('click', newDocument)
 $('wc-open').addEventListener('click', openFile)
 
 // wails 文件拖放：.md 打开文档，图片导入编辑器
+// 注意：wails 事件参数为 (x, y, paths)
 const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif']
 
-window.runtime?.EventsOn?.('wails:file-drop', async (paths) => {
+let wailsDropHandled = false // wails 路径链路是否已处理本次拖入
+let pendingDrop = null // 询问打开方式时的待处理拖拽文件 {path, content, fileName}
+
+// 拖拽 md 的统一打开入口：
+// - 启动页（无编辑器打开）→ 直接当前窗口打开，不询问
+// - 已有编辑器 → 按设置的 openAction 分流（询问/当前窗口/新窗口）
+async function handleDroppedMarkdown(entry) {
+  const app = wails()
+  if (!docOpen) {
+    if (entry.path && app) {
+      const data = await app.OpenPath(entry.path)
+      applyOpenedFile(data)
+    } else {
+      applyOpenedFile(entry)
+    }
+    return
+  }
+  let action = 'ask'
+  if (app) {
+    try {
+      action = (await app.GetSettings()).openAction || 'ask'
+    } catch {
+      /* 读取失败按询问处理 */
+    }
+  }
+  if (action === 'current' || !app) {
+    if (entry.path && app) {
+      const data = await app.OpenPath(entry.path)
+      applyOpenedFile(data)
+    } else {
+      applyOpenedFile(entry)
+    }
+    return
+  }
+  if (action === 'new') {
+    if (entry.path && app) {
+      await app.OpenInNewWindow(entry.path)
+    } else {
+      applyOpenedFile(entry) // 无真实路径时无法开新窗口
+    }
+    return
+  }
+  // ask：弹询问框
+  pendingDrop = entry
+  $('open-target-name').textContent = entry.path
+    ? baseName(entry.path)
+    : entry.fileName || '未命名文件'
+  $('btn-open-target-new').disabled = !entry.path
+  $('open-target-overlay').classList.remove('hidden')
+}
+
+const openTargetOverlay = $('open-target-overlay')
+$('btn-open-target-cancel').addEventListener('click', () => {
+  openTargetOverlay.classList.add('hidden')
+  pendingDrop = null
+})
+$('btn-open-target-current').addEventListener('click', async () => {
+  openTargetOverlay.classList.add('hidden')
+  const entry = pendingDrop
+  pendingDrop = null
+  if (!entry) return
+  const app = wails()
+  if (entry.path && app) {
+    try {
+      const data = await app.OpenPath(entry.path)
+      applyOpenedFile(data)
+    } catch (e) {
+      alert('打开失败: ' + e)
+    }
+  } else {
+    applyOpenedFile(entry)
+  }
+})
+$('btn-open-target-new').addEventListener('click', async () => {
+  openTargetOverlay.classList.add('hidden')
+  const entry = pendingDrop
+  pendingDrop = null
+  if (!entry) return
+  await wails()?.OpenInNewWindow(entry.path)
+})
+
+window.runtime?.EventsOn?.('wails:file-drop', async (x, y, paths) => {
   if (!paths || !paths.length) return
+  wailsDropHandled = true
   const app = wails()
   if (!app) return
 
-  // 优先处理拖入的 markdown 文件
+  // 优先处理拖入的 markdown 文件（走打开方式询问/分流）
   for (const p of paths) {
     const ext = (p.split('.').pop() || '').toLowerCase()
     if (ext === 'md' || ext === 'markdown') {
       try {
-        const data = await app.OpenPath(p)
-        applyOpenedFile(data)
+        await handleDroppedMarkdown({ path: p })
       } catch (e) {
         console.error(e)
         alert('打开失败: ' + e)
@@ -461,13 +733,85 @@ window.runtime?.EventsOn?.('wails:file-drop', async (paths) => {
   }
 })
 
+// ---------- 拖放保险层 ----------
+// wails 的拖放拦截依赖运行时注入，可能未激活；这里自行阻止 WebView
+// 默认行为（把 .md 当文本打开 / 弹浏览器），并在 wails 路径链路
+// 未生效时降级为按内容打开（丢失文件路径关联，提示用户另存）。
+const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')
+
+window.addEventListener(
+  'dragover',
+  (e) => {
+    if (hasFiles(e)) e.preventDefault()
+  },
+  { capture: true },
+)
+
+window.addEventListener(
+  'drop',
+  (e) => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+
+    const files = [...(e.dataTransfer.items || [])]
+      .filter((i) => i.kind === 'file')
+      .map((i) => i.getAsFile())
+      .filter(Boolean)
+    if (!files.length) return
+
+    // 直接通过 WebView2 原生桥请求 Go 解析真实路径。
+    // 不依赖 wails 运行时的拖放模块是否激活（消息格式与 wails 一致：file:drop:<x>:<y>）
+    if (window.chrome?.webview?.postMessageWithAdditionalObjects) {
+      window.chrome.webview.postMessageWithAdditionalObjects(
+        `file:drop:${Math.round(e.x)}:${Math.round(e.y)}`,
+        files,
+      )
+    }
+
+    // 兜底：400ms 内 wails 路径链路没回来，按内容处理（无路径）
+    wailsDropHandled = false
+    setTimeout(async () => {
+      if (wailsDropHandled) return
+      for (const f of files) {
+        const ext = (f.name.split('.').pop() || '').toLowerCase()
+        if (ext === 'md' || ext === 'markdown') {
+          try {
+            const text = await f.text()
+            await handleDroppedMarkdown({ path: '', content: text, fileName: f.name })
+          } catch (err) {
+            console.error(err)
+            alert('读取拖入文件失败: ' + err)
+          }
+          return
+        }
+      }
+    }, 400)
+  },
+  { capture: true },
+)
+
 async function openFile() {
   const app = wails()
   if (!app) return
   try {
-    const data = await app.OpenMarkdown()
-    if (!data) return // 取消
-    applyOpenedFile(data)
+    // 先选文件，再按设置的打开方式处理（询问 / 当前窗口 / 新窗口）
+    const path = await app.PickMarkdownPath()
+    if (!path) return
+    await handleDroppedMarkdown({ path })
+  } catch (e) {
+    console.error(e)
+    alert('打开失败: ' + e)
+  }
+}
+
+// 在新窗口打开（Ctrl+Shift+O）：选文件后起新实例，不弹单实例询问
+async function openFileInNewWindow() {
+  const app = wails()
+  if (!app) return
+  try {
+    const path = await app.PickMarkdownPath()
+    if (!path) return
+    await app.OpenInNewWindow(path)
   } catch (e) {
     console.error(e)
     alert('打开失败: ' + e)
@@ -475,10 +819,12 @@ async function openFile() {
 }
 
 function loadContent(md) {
+  loading = true
   setMarkdown(editor, md)
   setSourceDoc(cm, md)
   refreshStats(md)
   refreshOutline()
+  loading = false
 }
 
 function currentMarkdown() {
@@ -497,7 +843,6 @@ async function saveDocument() {
     currentPath = saved
     dirty = false
     refreshHeader()
-    cleanupDraft() // 已有正式归宿，草稿不再需要
     if (dirChanged) loadContent(currentMarkdown())
   } catch (e) {
     console.error(e)
@@ -515,7 +860,6 @@ async function saveFileAs() {
     currentPath = saved
     dirty = false
     refreshHeader()
-    cleanupDraft()
     if (dirChanged) loadContent(currentMarkdown())
   } catch (e) {
     console.error(e)
@@ -541,6 +885,31 @@ function refreshSettingsRows() {
   rowCustomDir.classList.toggle('hidden', !custom)
 }
 
+// ---------- 主题 ----------
+function applyTheme(theme) {
+  document.body.classList.toggle('dark', theme !== 'light')
+}
+
+// 标题栏快捷切换：取当前设置覆盖 Theme 后保存
+$('btn-theme').addEventListener('click', async () => {
+  const app = wails()
+  const next = document.body.classList.contains('dark') ? 'light' : 'dark'
+  applyTheme(next)
+  if (!app) return
+  try {
+    const s = await app.GetSettings()
+    await app.SaveSettings({
+      AssetMode: s.assetMode,
+      AssetsFolder: s.assetsFolder,
+      CustomDir: s.customDir,
+      OpenAction: s.openAction,
+      Theme: next,
+    })
+  } catch (e) {
+    console.error(e)
+  }
+})
+
 async function openSettings() {
   const app = wails()
   if (!app) return
@@ -549,6 +918,7 @@ async function openSettings() {
     selMode.value = s.assetMode
     inpFolder.value = s.assetsFolder
     inpCustomDir.value = s.customDir || ''
+    $('set-theme').value = s.theme || 'dark'
     $('set-open-action').value = s.openAction || 'ask'
     refreshSettingsRows()
     overlay.classList.remove('hidden')
@@ -561,12 +931,15 @@ async function saveSettings() {
   const app = wails()
   if (!app) return
   try {
+    const theme = $('set-theme').value
     await app.SaveSettings({
       AssetMode: selMode.value,
       AssetsFolder: inpFolder.value.trim() || 'assets',
       CustomDir: inpCustomDir.value,
       OpenAction: $('set-open-action').value,
+      Theme: theme,
     })
+    applyTheme(theme) // 立即生效
     overlay.classList.add('hidden')
   } catch (e) {
     alert('保存设置失败: ' + e)
@@ -588,7 +961,11 @@ $('btn-choose-dir').addEventListener('click', async () => {
 })
 
 // ---------- 全局快捷键 ----------
+// 有模态框打开时不响应，保证模态期间不能操作背后的编辑器
+const hasOpenModal = () => !!document.querySelector('.modal-overlay:not(.hidden)')
+
 window.addEventListener('keydown', (e) => {
+  if (hasOpenModal()) return
   const mod = e.ctrlKey || e.metaKey
   if (!mod) return
   const k = e.key.toLowerCase()
@@ -597,81 +974,94 @@ window.addEventListener('keydown', (e) => {
     saveDocument()
   } else if (k === 'o') {
     e.preventDefault()
-    openFile()
+    if (e.shiftKey) openFileInNewWindow()
+    else openFile()
   } else if (k === '/') {
     e.preventDefault()
     setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg')
   }
 })
 
-// ---------- 草稿恢复（启动时） ----------
-const draftsOverlay = $('drafts-overlay')
-const draftsList = $('drafts-list')
+// ---------- 关闭流程：未保存 → 询问「保留 / 废弃」；再按设置退出或留在后台 ----------
+const unsavedOverlay = $('unsaved-overlay')
+let closingWithTray = true
 
-async function refreshDraftsList() {
-  const app = wails()
-  if (!app) return
-  const drafts = await app.ListDrafts()
-  draftsList.innerHTML = ''
-  if (!drafts.length) {
-    draftsOverlay.classList.add('hidden')
-    // 全部删除/无草稿时：尚未进入编辑状态则回到启动页
-    if (!docOpen) showWelcome()
-    return
-  }
-  for (const d of drafts) {
-    const row = document.createElement('div')
-    row.className = 'draft-item'
-
-    const info = document.createElement('div')
-    info.className = 'draft-info'
-    const name = document.createElement('div')
-    name.className = 'draft-name'
-    name.textContent = d.name
-    const meta = document.createElement('div')
-    meta.className = 'draft-meta'
-    meta.textContent = `${d.modTime} · ${Math.max(0.1, Math.round(d.size / 102.4) / 10)} KB`
-    info.appendChild(name)
-    info.appendChild(meta)
-
-    const actions = document.createElement('div')
-    actions.className = 'draft-actions'
-    const btnOpen = document.createElement('button')
-    btnOpen.textContent = '打开'
-    btnOpen.className = 'primary'
-    btnOpen.addEventListener('click', async () => {
-      try {
-        const content = await app.ReadDraft(d.path)
-        clearTimeout(autoSaveTimer)
-        currentPath = ''
-        currentDraft = d.path // 继续自动保存到该草稿
-        dirty = false
-        loadContent(content)
-        refreshHeader()
-        draftsOverlay.classList.add('hidden')
-      } catch (e) {
-        alert('读取草稿失败: ' + e)
-      }
-    })
-    const btnDel = document.createElement('button')
-    btnDel.textContent = '删除'
-    btnDel.addEventListener('click', async () => {
-      await app.DeleteDraft(d.path)
-      refreshDraftsList()
-    })
-    actions.appendChild(btnOpen)
-    actions.appendChild(btnDel)
-
-    row.appendChild(info)
-    row.appendChild(actions)
-    draftsList.appendChild(row)
-  }
-  draftsOverlay.classList.remove('hidden')
+function showUnsavedDialog() {
+  $('unsaved-name').textContent = currentPath
+    ? displayName(currentPath)
+    : '未命名文档（保存时需要选择位置）'
+  unsavedOverlay.classList.remove('hidden')
 }
 
-$('btn-drafts-close').addEventListener('click', () => {
-  draftsOverlay.classList.add('hidden')
-  showWelcome() // 暂不处理草稿 → 进入启动页
+// 已命名的文件本来就有自动保存，关闭时补存一次，避免 2s 防抖误报未保存
+async function flushAutoSave() {
+  if (!dirty) return true
+  if (!currentPath) return false
+  const app = wails()
+  if (!app) return false
+  try {
+    await app.SaveMarkdown(currentMarkdown())
+    dirty = false
+    refreshHeader()
+    return true
+  } catch (e) {
+    console.error('关闭前保存失败', e)
+    return false
+  }
+}
+
+async function onCloseRequested(hasTray) {
+  closingWithTray = !!hasTray
+  if (!(await flushAutoSave())) {
+    showUnsavedDialog()
+    return
+  }
+  await finishClose()
+}
+
+// 未保存内容处理完（或本来就没有）后，按设置决定退出方式
+async function finishClose() {
+  const app = wails()
+  if (!app) return
+  if (!closingWithTray) {
+    app.ConfirmClose('exit', false) // 附属窗口没有托盘，直接退出
+    return
+  }
+  let action = 'ask'
+  try {
+    action = (await app.GetSettings()).closeAction || 'ask'
+  } catch {
+    /* 读取失败按询问处理 */
+  }
+  if (action === 'exit') app.ConfirmClose('exit', false)
+  else if (action === 'background') app.ConfirmClose('background', false)
+  else showExitDialog()
+}
+
+$('btn-unsaved-cancel').addEventListener('click', () => unsavedOverlay.classList.add('hidden'))
+$('btn-unsaved-discard').addEventListener('click', async () => {
+  unsavedOverlay.classList.add('hidden')
+  dirty = false
+  refreshHeader()
+  await finishClose()
+})
+$('btn-unsaved-save').addEventListener('click', async () => {
+  const app = wails()
+  if (!app) return
+  try {
+    const saved = currentPath
+      ? await app.SaveMarkdown(currentMarkdown())
+      : await app.SaveMarkdownAs(currentMarkdown())
+    if (!saved) return // 取消选择保存位置 → 留在编辑器
+    currentPath = saved
+    dirty = false
+    refreshHeader()
+  } catch (e) {
+    alert('保存失败: ' + e)
+    return
+  }
+  unsavedOverlay.classList.add('hidden')
+  await finishClose()
 })
 
 // ---------- 关闭询问（退出 / 留在后台托盘） ----------
@@ -692,11 +1082,32 @@ $('btn-exit-background').addEventListener('click', () => {
   wails()?.ConfirmClose('background', $('exit-remember').checked)
 })
 
-// Go 侧关闭拦截 → 弹询问
-window.runtime?.EventsOn?.('close-requested', showExitDialog)
+// Go 侧关闭拦截 → 先处理未保存内容，再询问退出方式
+window.runtime?.EventsOn?.('close-requested', (hasTray) => onCloseRequested(hasTray))
 
 // 单实例：第二实例请求打开文件
 window.runtime?.EventsOn?.('open-file', (data) => applyOpenedFile(data))
+
+// 关闭到后台后再打开：回到启动页（不再显示上次关闭的文档）
+function resetToWelcome() {
+  clearTimeout(autoSaveTimer)
+  // 内容已自动保存（已命名的文件写盘），这里只清空界面与当前路径
+  currentPath = ''
+  dirty = false
+  docOpen = false
+  setMode('wysiwyg')
+  loadContent('')
+  refreshHeader()
+  wails()?.ClosePath()
+  showWelcome()
+}
+
+// 窗口被唤出（托盘/再次双击 exe）：
+// 关闭到后台的重开 → 启动页；尚未进入编辑状态 → 补显启动页
+window.runtime?.EventsOn?.('window-shown', (reset) => {
+  if (reset && docOpen) resetToWelcome()
+  else if (!docOpen) showWelcome()
+})
 
 // ---------- 设置面板加：注册 .md 文件关联 ----------
 $('btn-register-md').addEventListener('click', async () => {
@@ -712,10 +1123,20 @@ $('btn-register-md').addEventListener('click', async () => {
 
 // ---------- 初始化 ----------
 async function init() {
+  const app = wails()
+  // 先应用主题，避免暗色用户看到闪白
+  applyTheme('dark')
+  try {
+    if (app) {
+      const s = await app.GetSettings()
+      applyTheme(s.theme)
+    }
+  } catch (e) {
+    console.error(e)
+  }
   refreshHeader()
   refreshStats(getMarkdown(editor))
   refreshOutline()
-  const app = wails()
   if (!app) return
   // 命令行带入的文件（双击 .md / 右键打开方式）
   let opened = false
@@ -724,15 +1145,6 @@ async function init() {
     if (startupFile) {
       applyOpenedFile(startupFile)
       opened = true
-    }
-  } catch (e) {
-    console.error(e)
-  }
-  try {
-    const drafts = await app.ListDrafts()
-    if (drafts && drafts.length) {
-      refreshDraftsList() // 恢复草稿或点“暂不处理”后决定是否进启动页
-      return
     }
   } catch (e) {
     console.error(e)

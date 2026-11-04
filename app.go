@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/windows/registry"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // FileData 前后端之间传递的文件内容
@@ -37,6 +38,7 @@ type App struct {
 	startupPath string // 命令行带入的要打开的文件路径
 	ln          net.Listener
 	settings    Settings // 应用设置
+	resetOnShow bool     // 关闭到后台后，下次显示窗口时回到启动页
 }
 
 func NewApp() *App {
@@ -48,28 +50,15 @@ func (a *App) startup(ctx context.Context) {
 	if a.ln != nil {
 		go a.serveSingleInstance()
 	}
-	go runTray(ctx)
+	go runTray(ctx, a)
 }
 
-// beforeClose 拦截窗口关闭：按设置退出 / 隐藏到托盘 / 询问用户
+// beforeClose 拦截窗口关闭：先交给前端处理未保存内容，再决定退出 / 留在后台
 func (a *App) beforeClose(ctx context.Context) bool {
 	if forceQuit {
 		return false
 	}
-	if a.ln == nil {
-		// 附属窗口实例（多实例模式下启动）：没有托盘，关闭即退出
-		return false
-	}
-	switch a.settings.CloseAction {
-	case "exit":
-		forceQuit = true
-		runtime.Quit(ctx)
-		return true
-	case "background":
-		runtime.WindowHide(ctx)
-		return true
-	}
-	runtime.EventsEmit(ctx, "close-requested")
+	runtime.EventsEmit(ctx, "close-requested", a.ln != nil)
 	return true
 }
 
@@ -79,19 +68,30 @@ func (a *App) ConfirmClose(action string, remember bool) {
 		a.settings.CloseAction = action
 		_ = saveSettingsToDisk(a.settings)
 	}
-	if action == "exit" {
+	// 附属窗口实例（无托盘）只能退出，不能藏起来
+	if action == "exit" || a.ln == nil {
 		forceQuit = true
 		runtime.Quit(a.ctx)
-	} else {
-		runtime.WindowHide(a.ctx)
+		return
 	}
+	a.resetOnShow = true
+	runtime.WindowHide(a.ctx)
+}
+
+// showMainWindow 显示主窗口；若是“关闭到后台”后重开，则让前端回到启动页
+func (a *App) showMainWindow() {
+	reset := a.resetOnShow
+	a.resetOnShow = false
+	runtime.EventsEmit(a.ctx, "window-shown", reset)
+	runtime.WindowShow(a.ctx)
 }
 
 // serveSingleInstance 单实例服务：接收第二实例的打开文件/唤出窗口请求
 func (a *App) serveSingleInstance() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/show", func(w http.ResponseWriter, r *http.Request) {
-		runtime.WindowShow(a.ctx)
+		w.Header().Set("X-Typora-Lite", "pong")
+		a.showMainWindow()
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/open", func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +104,7 @@ func (a *App) serveSingleInstance() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("X-Typora-Lite", "pong")
 		runtime.WindowShow(a.ctx)
 		w.WriteHeader(http.StatusOK)
 	})
@@ -117,11 +118,13 @@ func (a *App) openFileInternal(path string) error {
 		return err
 	}
 	a.curPath = path
+	a.resetOnShow = false // 重新打开文件后不再回到启动页
+	addRecentFile(path)
 	runtime.EventsEmit(a.ctx, "open-file", FileData{Path: path, Content: string(data)})
 	return nil
 }
 
-// GetStartupFile 前端启动后主动取一次命令行带入的文件（取后清空）
+// GetStartupFile 领取待打开的文件（命令行参数或单实例转发），取后清空
 func (a *App) GetStartupFile() *FileData {
 	if a.startupPath == "" {
 		return nil
@@ -133,7 +136,34 @@ func (a *App) GetStartupFile() *FileData {
 		return nil
 	}
 	a.curPath = p
+	addRecentFile(p)
 	return &FileData{Path: p, Content: string(data)}
+}
+
+// PickMarkdownPath 只弹出选择对话框返回路径（不读取内容），供"在新窗口打开"使用
+func (a *App) PickMarkdownPath() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "打开 Markdown 文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Markdown (*.md;*.markdown)", Pattern: "*.md;*.markdown"},
+			{DisplayName: "所有文件 (*.*)", Pattern: "*.*"},
+		},
+	})
+}
+
+// OpenInNewWindow 在新窗口打开指定 .md 文件（绕过单实例询问）
+func (a *App) OpenInNewWindow(path string) error {
+	if path == "" {
+		return nil // 用户取消选择
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return exec.Command(exe, "--new-window", path).Start()
 }
 
 // OpenPath 直接按路径打开 .md 文件（拖拽打开）
@@ -147,6 +177,7 @@ func (a *App) OpenPath(path string) (*FileData, error) {
 		return nil, err
 	}
 	a.curPath = path
+	addRecentFile(path)
 	return &FileData{Path: path, Content: string(data)}, nil
 }
 
@@ -168,7 +199,8 @@ func (a *App) ImportImage(path string) (*SaveImageResult, error) {
 	return a.saveToAssets(data, ext)
 }
 
-// RegisterMdAssociation 把 Typora Lite 加入 .md 文件的“打开方式”列表（写 HKCU，无需管理员）
+// RegisterMdAssociation 把 Typora Lite 加入 .md 文件的“打开方式”列表。
+// 全部写 HKCU（免管理员），注册后通知资源管理器刷新关联缓存。
 func (a *App) RegisterMdAssociation() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -176,43 +208,116 @@ func (a *App) RegisterMdAssociation() (string, error) {
 	}
 	exe = filepath.Clean(exe)
 
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Classes\TyporaLite.md`, registry.SET_VALUE)
-	if err != nil {
-		return "", err
-	}
-	defer k.Close()
-	_ = k.SetStringValue("", "Typora Lite Markdown")
+	const progID = "TyporaLite.md"
+	cmd := fmt.Sprintf(`"%s" "%%1"`, exe)
 
-	kc, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Classes\TyporaLite.md\shell\open\command`, registry.SET_VALUE)
-	if err != nil {
-		return "", err
+	// 1) ProgID：打开命令 + 图标 + 友好名称
+	steps := []struct {
+		path  string
+		name  string
+		value string
+	}{
+		{`Software\Classes\` + progID, "", "Typora Lite Markdown"},
+		{`Software\Classes\` + progID, "FriendlyTypeName", "Typora Lite Markdown"},
+		{`Software\Classes\` + progID + `\DefaultIcon`, "", fmt.Sprintf(`"%s",0`, exe)},
+		{`Software\Classes\` + progID + `\shell\open\command`, "", cmd},
+		// 2) 应用注册：让“打开方式 / 选择其他应用”列表能稳定展示
+		{`Software\Classes\Applications\TyporaLite.exe`, "FriendlyAppName", "Typora Lite"},
+		{`Software\Classes\Applications\TyporaLite.exe\DefaultIcon`, "", fmt.Sprintf(`"%s",0`, exe)},
+		{`Software\Classes\Applications\TyporaLite.exe\shell\open\command`, "", cmd},
+		{`Software\Classes\Applications\TyporaLite.exe\SupportedTypes`, ".md", ""},
+		{`Software\Classes\Applications\TyporaLite.exe\SupportedTypes`, ".markdown", ""},
 	}
-	defer kc.Close()
-	_ = kc.SetStringValue("", fmt.Sprintf(`"%s" "%%1"`, exe))
-
-	kmd, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Classes\.md`, registry.SET_VALUE|registry.QUERY_VALUE)
-	if err != nil {
-		return "", err
-	}
-	defer kmd.Close()
-	existing, _, err := kmd.GetStringsValue("OpenWithProgids")
-	if err != nil {
-		existing = nil
-	}
-	found := false
-	for _, v := range existing {
-		if v == "TyporaLite.md" {
-			found = true
-			break
+	for _, s := range steps {
+		k, _, err := registry.CreateKey(registry.CURRENT_USER, s.path, registry.SET_VALUE)
+		if err != nil {
+			return "", fmt.Errorf("写入注册表失败(%s): %w", s.path, err)
+		}
+		err = k.SetStringValue(s.name, s.value)
+		k.Close()
+		if err != nil {
+			return "", fmt.Errorf("写入注册表值失败(%s / %s): %w", s.path, s.name, err)
 		}
 	}
-	if !found {
-		existing = append(existing, "TyporaLite.md")
+
+	// 3) .md\OpenWithProgids 必须是【子键】，子键下以 ProgID 命名的空值
+	for _, ext := range []string{".md", ".markdown"} {
+		kow, _, err := registry.CreateKey(
+			registry.CURRENT_USER,
+			`Software\Classes\`+ext+`\OpenWithProgids`,
+			registry.SET_VALUE,
+		)
+		if err != nil {
+			return "", fmt.Errorf("写入 OpenWithProgids 失败(%s): %w", ext, err)
+		}
+		err = kow.SetStringValue(progID, "")
+		kow.Close()
+		if err != nil {
+			return "", fmt.Errorf("写入 OpenWithProgids 值失败(%s): %w", ext, err)
+		}
 	}
-	if err := kmd.SetStringsValue("OpenWithProgids", existing); err != nil {
+
+	// 清理旧版本误写在 .md 键下的同名多字符串值（错误结构，会导致识别异常）
+	for _, ext := range []string{".md", ".markdown"} {
+		kmd, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\`+ext, registry.SET_VALUE)
+		if err != nil {
+			continue
+		}
+		_ = kmd.DeleteValue("OpenWithProgids")
+		kmd.Close()
+	}
+
+	// 4) 通知资源管理器立即刷新文件关联（否则要重启 explorer 才生效）
+	notifyAssocChanged()
+
+	return "已注册成功。请右键 .md 文件 → 打开方式 → 选择其他应用，即可看到 Typora Lite。\n\n" +
+		"注意：若以后移动了本程序位置，需要重新点此注册。", nil
+}
+
+// SHChangeNotify：让资源管理器立即感知关联变化
+func notifyAssocChanged() {
+	const (
+		shcneAssocChanged = 0x08000000
+		shcnfIDList       = 0x0000
+	)
+	shell32 := windows.NewLazySystemDLL("shell32.dll")
+	proc := shell32.NewProc("SHChangeNotify")
+	if proc.Find() == nil {
+		_, _, _ = proc.Call(shcneAssocChanged, shcnfIDList, 0, 0)
+	}
+}
+
+// RenameFile 重命名当前打开的文件（只改主名，自动保留原扩展名），返回新路径
+func (a *App) RenameFile(newBaseName string) (string, error) {
+	if a.curPath == "" {
+		return "", fmt.Errorf("当前文档尚未保存，请先保存后再重命名")
+	}
+	base := strings.TrimSpace(newBaseName)
+	if base == "" {
+		return "", fmt.Errorf("文件名不能为空")
+	}
+	if strings.ContainsAny(base, `\/:*?"<>|`) {
+		return "", fmt.Errorf("文件名不能包含 \\ / : * ? \" < > | 等字符")
+	}
+
+	ext := filepath.Ext(a.curPath)
+	// 用户可能自己带上了扩展名，统一剥掉后再拼接
+	if ext != "" && strings.EqualFold(base[len(base)-len(ext):], ext) && len(base) > len(ext) {
+		base = base[:len(base)-len(ext)]
+	}
+	newPath := filepath.Join(filepath.Dir(a.curPath), base+ext)
+	if newPath == a.curPath {
+		return a.curPath, nil
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return "", fmt.Errorf("同名文件已存在: %s", base+ext)
+	}
+	if err := os.Rename(a.curPath, newPath); err != nil {
 		return "", err
 	}
-	return "已注册：在资源管理器中右键 .md 文件 → 打开方式 → 选择 Typora Lite", nil
+	a.curPath = newPath
+	addRecentFile(newPath)
+	return newPath, nil
 }
 
 // ---------- 设置 ----------
@@ -230,11 +335,18 @@ func (a *App) SaveSettings(s Settings) (Settings, error) {
 	if s.AssetMode != "custom" && s.AssetMode != "relative" {
 		s.AssetMode = "relative"
 	}
+	if s.CloseAction == "" {
+		// 前端保存其他设置时未带此字段 → 保留原有选择
+		s.CloseAction = a.settings.CloseAction
+	}
 	if s.CloseAction != "exit" && s.CloseAction != "background" {
 		s.CloseAction = "ask"
 	}
 	if s.OpenAction != "current" && s.OpenAction != "new" {
 		s.OpenAction = "ask"
+	}
+	if s.Theme != "light" {
+		s.Theme = "dark"
 	}
 	a.settings = s
 	if err := saveSettingsToDisk(s); err != nil {
@@ -453,6 +565,7 @@ func (a *App) OpenMarkdown() (*FileData, error) {
 		return nil, err
 	}
 	a.curPath = path
+	addRecentFile(path)
 	return &FileData{Path: path, Content: string(data)}, nil
 }
 
@@ -493,6 +606,7 @@ func (a *App) SaveMarkdownAs(content string) (string, error) {
 		return "", err
 	}
 	a.curPath = path
+	addRecentFile(path)
 	return path, nil
 }
 

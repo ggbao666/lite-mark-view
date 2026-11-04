@@ -26,6 +26,8 @@ type Settings struct {
 	//   "current" - 在当前窗口打开
 	//   "new"     - 在新窗口打开（多实例）
 	OpenAction string `json:"openAction"`
+	// Theme 界面主题："dark"（默认）| "light"
+	Theme string `json:"theme"`
 }
 
 func DefaultSettings() Settings {
@@ -35,6 +37,7 @@ func DefaultSettings() Settings {
 		CustomDir:    "",
 		CloseAction:  "ask",
 		OpenAction:   "ask",
+		Theme:        "dark",
 	}
 }
 
@@ -69,6 +72,9 @@ func loadSettings() Settings {
 	}
 	if s.OpenAction != "current" && s.OpenAction != "new" {
 		s.OpenAction = "ask"
+	}
+	if s.Theme != "light" {
+		s.Theme = "dark"
 	}
 	return s
 }
