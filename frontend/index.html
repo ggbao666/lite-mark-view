@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Typora Lite</title>
+</head>
+<body>
+  <div id="app">
+    <header class="titlebar">
+      <div class="title-left">
+        <button id="btn-open" title="打开 (Ctrl+O)">打开</button>
+        <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
+        <button id="btn-save-as" title="另存为">另存为</button>
+        <button id="tb-insert" title="插入 3x3 表格">表格</button>
+      </div>
+      <div class="title-center" id="file-title">未命名</div>
+      <div class="title-right">
+        <button id="btn-outline" title="显示 / 隐藏目录大纲">大纲</button>
+        <button id="btn-settings" title="设置">设置</button>
+        <button id="btn-mode" title="切换源码 / 所见即所得 (Ctrl+/)">源码模式</button>
+      </div>
+    </header>
+
+    <div class="content-row">
+      <main class="editor-wrap">
+        <div class="paper">
+          <div id="tiptap-editor"></div>
+          <div id="codemirror-editor" class="hidden"></div>
+        </div>
+      </main>
+
+      <!-- 右侧目录大纲（默认折叠） -->
+      <aside id="outline-panel" class="outline-panel">
+        <div class="outline-header">
+          <span>大纲</span>
+          <button id="btn-outline-close" title="收起">×</button>
+        </div>
+        <div id="outline-list" class="outline-list"></div>
+      </aside>
+    </div>
+
+    <!-- 选中文本悬浮气泡 -->
+    <div id="bubble-menu" class="bubble-menu">
+      <button data-cmd="bold" title="加粗 (Ctrl+B)"><b>B</b></button>
+      <button data-cmd="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+      <button data-cmd="strike" title="删除线"><s>S</s></button>
+      <button data-cmd="highlight" title="高亮"><mark>H</mark></button>
+      <button data-cmd="code" title="行内代码">&lt;/&gt;</button>
+    </div>
+
+    <footer class="statusbar">
+      <span id="status-words">0 字</span>
+      <span id="status-mode">所见即所得</span>
+      <span id="status-dirty"></span>
+    </footer>
+  </div>
+
+  <!-- 设置面板 -->
+  <div id="settings-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>设置</h3>
+      <div class="form-row">
+        <label for="set-asset-mode">图片资源存储位置</label>
+        <select id="set-asset-mode">
+          <option value="relative">当前文件所在目录（相对路径引用）</option>
+          <option value="custom">自定义目录（绝对路径引用）</option>
+        </select>
+      </div>
+      <div class="form-row" id="row-assets-folder">
+        <label for="set-assets-folder">资源文件夹名</label>
+        <input id="set-assets-folder" type="text" value="assets" />
+      </div>
+      <div class="form-row hidden" id="row-custom-dir">
+        <label for="set-custom-dir">存储目录</label>
+        <div class="dir-row">
+          <input id="set-custom-dir" type="text" readonly placeholder="未选择" />
+          <button id="btn-choose-dir">浏览…</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="set-open-action">已有窗口运行时，再次打开 .md 文件</label>
+        <select id="set-open-action">
+          <option value="ask">每次询问（当前窗口 / 新窗口）</option>
+          <option value="current">总是在当前窗口打开</option>
+          <option value="new">总是在新窗口打开</option>
+        </select>
+      </div>
+    <div class="form-row">
+      <label>文件关联</label>
+      <div class="dir-row">
+        <input type="text" readonly value="将 Typora Lite 加入 .md 文件的「打开方式」列表" />
+        <button id="btn-register-md">注册</button>
+      </div>
+    </div>
+      <p class="hint">相对模式：图片存到当前文件同级目录的资源文件夹，Markdown 中以相对路径引用；文件未保存过时，存到「文档\TyporaLite\assets」。自定义模式：图片统一存到指定目录，以绝对路径引用。</p>
+      <div class="modal-actions">
+        <button id="btn-settings-cancel">取消</button>
+        <button id="btn-settings-ok" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 启动页：新建 / 打开 / 拖拽 -->
+  <div id="welcome-screen" class="welcome-screen hidden">
+    <div class="welcome-card">
+      <h1>Typora Lite</h1>
+      <p class="welcome-sub">简洁的 Markdown 编辑器</p>
+      <div class="welcome-actions">
+        <button id="wc-new" class="primary">新建空白文档</button>
+        <button id="wc-open">打开文档</button>
+      </div>
+      <div id="wc-dropzone" class="dropzone">
+        <div class="dropzone-icon">⇩</div>
+        <div>把 .md 文件拖到这里打开</div>
+        <div class="dropzone-sub">也支持直接拖入图片插入文档</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关闭询问 -->
+  <div id="exit-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>关闭 Typora Lite</h3>
+      <p class="hint">留在后台：软件驻留在系统托盘（屏幕右下角），双击 .md 文件可立即打开，速度更快；可随时从托盘菜单完全退出。</p>
+      <label class="check-row">
+        <input type="checkbox" id="exit-remember" />
+        记住我的选择，下次不再询问
+      </label>
+      <div class="modal-actions">
+        <button id="btn-exit-cancel">取消</button>
+        <button id="btn-exit-background">留在后台</button>
+        <button id="btn-exit-quit" class="primary">退出软件</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 启动时草稿恢复 -->
+  <div id="drafts-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>发现未保存的草稿</h3>
+      <div id="drafts-list" class="drafts-list"></div>
+      <div class="modal-actions">
+        <button id="btn-drafts-close">暂不处理</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
