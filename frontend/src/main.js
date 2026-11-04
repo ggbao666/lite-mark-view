@@ -30,6 +30,7 @@ let currentPath = '' // 显示用文件路径
 let currentDraft = '' // 未命名文档对应的草稿文件路径（自动保存用）
 let dirty = false
 let mode = 'wysiwyg' // 'wysiwyg' | 'source'
+let docOpen = false // 是否已进入编辑状态（新建/打开后为 true，启动页不再出现）
 
 function baseName(p) {
   if (!p) return '未命名'
@@ -387,6 +388,7 @@ function applyOpenedFile(data) {
   currentPath = data.path || ''
   currentDraft = ''
   dirty = false
+  docOpen = true
   loadContent(data.content ?? '')
   refreshHeader()
 }
@@ -399,6 +401,7 @@ function newDocument() {
   currentPath = ''
   currentDraft = ''
   dirty = false
+  docOpen = true
   loadContent('')
   refreshHeader()
   editor.commands.focus()
@@ -612,6 +615,8 @@ async function refreshDraftsList() {
   draftsList.innerHTML = ''
   if (!drafts.length) {
     draftsOverlay.classList.add('hidden')
+    // 全部删除/无草稿时：尚未进入编辑状态则回到启动页
+    if (!docOpen) showWelcome()
     return
   }
   for (const d of drafts) {
