@@ -25,6 +25,23 @@ var assets embed.FS
 //go:embed build/windows/icon.ico
 var trayIconBytes []byte // Windows 托盘要求 .ico 格式
 
+// nativeTheme 原生标题栏配色，和页面主题保持一致（COLORREF: 0x00BBGGRR）
+// 暗色：#2a2b2d 底 / #dcdcdc 字 / #48494d 边框；亮色：#ffffff 底 / #333333 字 / #e5e5e5 边框
+var nativeTheme = &windows.ThemeSettings{
+	DarkModeTitleBar:           0x002D2B2A,
+	DarkModeTitleBarInactive:   0x002D2B2A,
+	DarkModeTitleText:          0x00DCDCDC,
+	DarkModeTitleTextInactive:  0x00DCDCDC,
+	DarkModeBorder:             0x004D4948,
+	DarkModeBorderInactive:     0x004D4948,
+	LightModeTitleBar:          0x00FFFFFF,
+	LightModeTitleBarInactive:  0x00FFFFFF,
+	LightModeTitleText:         0x00333333,
+	LightModeTitleTextInactive: 0x00333333,
+	LightModeBorder:            0x00E5E5E5,
+	LightModeBorderInactive:    0x00E5E5E5,
+}
+
 // viewerMode 图片查看器进程模式（--image-viewer 启动时为 true）
 var viewerMode = false
 
@@ -136,7 +153,8 @@ func runImageViewer(path string) {
 			v,
 		},
 		Windows: &windows.Options{
-			Theme: winTheme,
+			Theme:       winTheme,
+			CustomTheme: nativeTheme,
 		},
 	})
 	if err != nil {
@@ -222,6 +240,7 @@ func main() {
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 			Theme:                winTheme,
+			CustomTheme:          nativeTheme,
 		},
 	})
 

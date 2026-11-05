@@ -1,16 +1,23 @@
 import './style.css'
-import { EditorView } from '@codemirror/view'
+import { EditorView, keymap, Decoration } from '@codemirror/view'
+import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import {
+  history,
+  defaultKeymap,
+  historyKeymap,
+  indentWithTab,
+} from '@codemirror/commands'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
+import { tags as t } from '@lezer/highlight'
 import {
   createEditor,
   getMarkdown,
   setMarkdown,
   countWords,
+  setSearchHighlight,
 } from './editor.js'
-import {
-  createSourceEditor,
-  setSourceDoc,
-  getSourceDoc,
-} from './source-mode.js'
 
 // ---------- Wails 运行时绑定（wails dev / build 时由桥接注入） ----------
 const wails = () => window.go?.main?.App
@@ -24,14 +31,17 @@ const elMode = $('status-mode')
 const elDirty = $('status-dirty')
 const elPath = $('status-path')
 const elTiptapWrap = $('tiptap-editor')
-const elCmWrap = $('codemirror-editor')
+const elSourceWrap = $('source-wrap')
+const elSource = $('source-editor')
 
 // ---------- 状态 ----------
 let currentPath = '' // 显示用文件路径
 let dirty = false
 let mode = 'wysiwyg' // 'wysiwyg' | 'source'
 let docOpen = false // 是否已进入编辑状态（新建/打开后为 true，启动页不再出现）
-let loading = false // 程序性装载内容期间为 true（此时编辑器变更不算用户编辑）
+let rawMarkdown = '' // 打开/保存时的文件原文（源码模式直接显示它，不做序列化转换）
+let wysiwygEdited = false // 所见即所得里是否改过内容
+let sourceDirty = false // 源码模式里是否改过内容（切回时需要重新解析）
 
 function baseName(p) {
   if (!p) return '未命名'
@@ -149,7 +159,10 @@ async function autoSave() {
   if (!app) return
   if (!currentPath) return // 未命名文档不自动保存；关闭时询问「保留 / 废弃」
   try {
-    await app.SaveMarkdown(currentMarkdown())
+    const md = currentMarkdown()
+    await app.SaveMarkdown(md)
+    rawMarkdown = md
+    if (mode === 'wysiwyg' && lastMarkdown === md) wysiwygEdited = false
     dirty = false
     refreshHeader()
     elDirty.textContent = `已自动保存 ${nowTime()}`
@@ -172,8 +185,14 @@ async function uploadImage(file) {
 }
 
 // ---------- Tiptap ----------
+// 最近一次内容；链接展开成原文等视图层变化不改变 Markdown，不应标记为已修改
+let lastMarkdown = ''
+
 const editor = createEditor(elTiptapWrap, {
   onUpdate: (md) => {
+    if (md === lastMarkdown) return
+    lastMarkdown = md
+    wysiwygEdited = true
     markDirty()
     refreshStats(md)
     refreshOutline()
@@ -181,85 +200,641 @@ const editor = createEditor(elTiptapWrap, {
   getCurrentDir: () => dirName(currentPath),
   uploadImage,
   downloadImage: (url) => wails()?.DownloadImage(url),
-  bubbleElement: $('bubble-menu'),
+  // 仅所见即所得模式下自动把 [名称](地址) 转成链接
+  canAutoConvert: () => mode === 'wysiwyg',
 })
 
-// ---------- 选中文字悬浮气泡 ----------
-const bubbleEl = $('bubble-menu')
-bubbleEl.querySelectorAll('button').forEach((btn) => {
-  // mousedown 阻止焦点转移，保住选区
-  btn.addEventListener('mousedown', (e) => e.preventDefault())
-  btn.addEventListener('click', () => {
-    const chain = editor.chain().focus()
-    const cmd = btn.dataset.cmd
-    if (cmd === 'bold') chain.toggleBold().run()
-    else if (cmd === 'italic') chain.toggleItalic().run()
-    else if (cmd === 'strike') chain.toggleStrike().run()
-    else if (cmd === 'highlight') chain.toggleHighlight().run()
-    else if (cmd === 'code') chain.toggleCode().run()
-  })
-})
-// 按钮高亮状态跟随光标处格式
-editor.on('transaction', () => {
-  bubbleEl.querySelectorAll('button').forEach((btn) => {
-    const cmd = btn.dataset.cmd
-    const active =
-      cmd === 'highlight' ? editor.isActive('highlight') : editor.isActive(cmd)
-    btn.classList.toggle('is-active', active)
-  })
-})
-
-// 滚动时隐藏气泡（wails 气泡只在新事务时重新评估，滚动不会触发，
-// 不处理会滞留并错位；重新选中文本时它会自动再出现）
-const hideBubbleOnScroll = () => {
-  // 只改 visibility：气泡再次展示时 Tiptap 会把 visibility 设回 visible
-  bubbleEl.style.visibility = 'hidden'
-}
 // 编辑区滚动容器（注意：$ 是 getElementById 的简写，此处须用 querySelector）
 const editorScrollWrap = document.querySelector('.editor-wrap')
-editorScrollWrap?.addEventListener('scroll', hideBubbleOnScroll, { passive: true })
-window.addEventListener('wheel', hideBubbleOnScroll, { passive: true })
 
-// ---------- CodeMirror ----------
-const cm = createSourceEditor(elCmWrap, {
-  onChange: (text) => {
-    if (loading) return // 打开/装载文件时的程序性变更，不是用户编辑
-    setMarkdown(editor, text) // 实时同步进 tiptap（不触发其 onUpdate）
-    markDirty()
-    refreshStats(text)
-    refreshOutline()
+// ---------- 源码模式：CodeMirror 6（显示文件原文） ----------
+// 不做实时同步进 tiptap：源码里改过，切回所见即所得时再用原文重新解析，
+// 保证解析结果与文件原文完全一致。
+
+// Markdown / 围栏代码块的语法高亮配色：直接用全局 CSS 变量，亮暗主题自动跟随
+const cmHighlight = HighlightStyle.define([
+  { tag: t.heading, color: 'var(--hl-title)', fontWeight: 'bold' },
+  { tag: t.strong, fontWeight: 'bold' },
+  { tag: t.emphasis, fontStyle: 'italic' },
+  { tag: t.strikethrough, textDecoration: 'line-through' },
+  { tag: t.link, color: 'var(--accent)' },
+  { tag: t.url, color: 'var(--accent)' },
+  { tag: t.monospace, color: 'var(--hl-string)' },
+  { tag: t.quote, color: 'var(--quote-fg)' },
+  { tag: t.processingInstruction, color: 'var(--fg-soft)' }, // #、**、``` 等记号
+  { tag: t.contentSeparator, color: 'var(--fg-soft)' }, // ---
+  { tag: t.meta, color: 'var(--fg-soft)' },
+  { tag: t.keyword, color: 'var(--hl-keyword)' },
+  { tag: t.atom, color: 'var(--hl-builtin)' },
+  { tag: t.string, color: 'var(--hl-string)' },
+  { tag: t.number, color: 'var(--hl-number)' },
+  { tag: t.comment, color: 'var(--hl-comment)' },
+  { tag: t.variableName, color: 'var(--hl-attr)' },
+  { tag: t.typeName, color: 'var(--hl-builtin)' },
+  { tag: t.propertyName, color: 'var(--hl-attr)' },
+  { tag: t.labelName, color: 'var(--hl-builtin)' },
+])
+
+// 查找匹配的 CM 装饰层（find-mark / find-mark-active）
+const setFindEffect = StateEffect.define()
+const findField = StateField.define({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    deco = deco.map(tr.changes)
+    for (const e of tr.effects) if (e.is(setFindEffect)) deco = e.value
+    return deco
   },
-  onSave: () => saveDocument(),
+  provide: (f) => EditorView.decorations.from(f),
 })
+
+let sourceProgrammatic = false // 程序性改写（切模式/载入文件）不算源码编辑
+
+const cmView = new EditorView({
+  parent: elSource,
+  state: EditorState.create({
+    doc: '',
+    extensions: [
+      history(),
+      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      markdown({ base: markdownLanguage, codeLanguages: languages }),
+      syntaxHighlighting(cmHighlight),
+      EditorView.lineWrapping,
+      EditorState.tabSize.of(2),
+      findField,
+      EditorView.updateListener.of((u) => {
+        if (!u.docChanged || sourceProgrammatic) return
+        scheduleFindRefresh()
+        sourceDirty = true
+        markDirty()
+        refreshStats(getSourceText())
+        refreshOutline()
+      }),
+    ],
+  }),
+})
+
+function getSourceText() {
+  return cmView.state.doc.toString()
+}
+
+function setSourceText(text) {
+  const cur = getSourceText()
+  if (cur === text) return
+  sourceProgrammatic = true
+  cmView.dispatch({ changes: { from: 0, to: cur.length, insert: text } })
+  sourceProgrammatic = false
+}
+
+// 把查找匹配刷进 CM 装饰层
+function renderSourceHighlight() {
+  const ranges = []
+  const len = cmView.state.doc.length
+  if (findBarOpen()) {
+    for (let i = 0; i < findMatches.length; i += 1) {
+      const m = findMatches[i]
+      if (m.from >= len) break
+      const cls = i === findActive ? 'find-mark find-mark-active' : 'find-mark'
+      ranges.push(Decoration.mark({ class: cls }).range(m.from, Math.min(m.to, len)))
+    }
+  }
+  cmView.dispatch({ effects: setFindEffect.of(Decoration.set(ranges, true)) })
+}
+
+// 把源码的某个字符位置滚到页面可视区约 1/3 处
+function scrollSourceOffsetTo(offset, ratio = 1 / 3) {
+  const wrap = editorScrollWrap
+  if (!wrap) return
+  const coords = cmView.coordsAtPos(Math.min(offset, cmView.state.doc.length))
+  if (!coords) return
+  const wrapRect = wrap.getBoundingClientRect()
+  wrap.scrollTop = Math.max(
+    0,
+    wrap.scrollTop + (coords.top - wrapRect.top) - wrap.clientHeight * ratio,
+  )
+}
+
+// ---------- 源码行 ↔ 所见即所得块 的近似映射 ----------
+// 每个块记录它在文件文本里的起始行；切换模式时据此把光标放到对应/附近行
+let blockLineMap = [] // [{ pos, node, line }]
+
+function buildBlockLineMap(markdown, doc) {
+  const srcLines = markdown.split('\n')
+  const blocks = []
+  doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      blocks.push({ pos, node, text: (node.textContent || '').trim() })
+      return false
+    }
+    return true
+  })
+  const map = []
+  let searchFrom = 0
+  for (const block of blocks) {
+    const first = block.text.split('\n')[0].trim().slice(0, 60)
+    let line = -1
+    if (first) {
+      for (let i = searchFrom; i < srcLines.length; i += 1) {
+        if (srcLines[i].includes(first)) {
+          line = i
+          break
+        }
+      }
+      if (line < 0) {
+        for (let i = 0; i < srcLines.length; i += 1) {
+          if (srcLines[i].includes(first)) {
+            line = i
+            break
+          }
+        }
+      }
+    }
+    if (line < 0) line = Math.min(searchFrom, Math.max(0, srcLines.length - 1))
+    else searchFrom = line
+    map.push({ pos: block.pos, node: block.node, line })
+  }
+  return map
+}
+
+// 光标文档位置 → 源码行（代码块按块内换行数偏移）
+function sourceLineAt(pos) {
+  if (!blockLineMap.length) return 0
+  let entry = blockLineMap[0]
+  for (const item of blockLineMap) {
+    if (item.pos <= pos) entry = item
+    else break
+  }
+  let line = entry.line
+  if (entry.node?.type?.name === 'codeBlock') {
+    const before = entry.node.textContent.slice(0, Math.max(0, pos - (entry.pos + 1)))
+    line += (before.match(/\n/g) || []).length
+  }
+  return line
+}
+
+// 源码行 → 文档位置（放进对应块里）
+function docPosAtLine(line) {
+  if (!blockLineMap.length) return 1
+  let entry = blockLineMap[0]
+  for (const item of blockLineMap) {
+    if (item.line <= line) entry = item
+    else break
+  }
+  let pos = entry.pos + 1
+  if (entry.node?.type?.name === 'codeBlock') {
+    const codeLines = entry.node.textContent.split('\n')
+    const offset = Math.max(0, Math.min(line - entry.line, codeLines.length - 1))
+    for (let i = 0; i < offset; i += 1) pos += codeLines[i].length + 1
+  }
+  return Math.min(pos, editor.state.doc.content.size)
+}
+
+function sourceCaretLine() {
+  const head = cmView.state.selection.main.head
+  return cmView.state.doc.lineAt(head).number - 1
+}
+
+// 切换模式时的定位锚点：取视口约 1/3 处正在看的内容，而不是光标位置
+// （光标可能停在很上面，但人已经滚到下面看了）
+function wysiwygViewportAnchorPos() {
+  const wrap = editorScrollWrap
+  if (!wrap) return editor.state.selection.from
+  const r = wrap.getBoundingClientRect()
+  const hit = editor.view.posAtCoords({
+    left: r.left + r.width / 2,
+    top: r.top + r.height / 3,
+  })
+  return hit ? hit.pos : editor.state.selection.from
+}
+
+function sourceViewportLine() {
+  const wrap = editorScrollWrap
+  if (!wrap) return sourceCaretLine()
+  const r = wrap.getBoundingClientRect()
+  const pos = cmView.posAtCoords({
+    x: r.left + r.width / 2,
+    y: r.top + r.height / 3,
+  })
+  if (pos == null) return sourceCaretLine()
+  return cmView.state.doc.lineAt(pos).number - 1
+}
+
+// 源码模式：把光标放到对应行，并滚到可视区约 1/3 处
+function placeSourceCaret(line) {
+  const doc = cmView.state.doc
+  const target = Math.max(1, Math.min(line + 1, doc.lines))
+  const offset = doc.line(target).from
+  cmView.focus()
+  cmView.dispatch({ selection: { anchor: offset } })
+  requestAnimationFrame(() => scrollSourceOffsetTo(offset))
+}
+
+// 所见即所得：滚动到光标处，放在可视区约 1/3 位置
+function scrollCaretToThird() {
+  const wrap = editorScrollWrap
+  if (!wrap) return
+  requestAnimationFrame(() => {
+    let rect = null
+    try {
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount) rect = sel.getRangeAt(0).getBoundingClientRect()
+    } catch {
+      rect = null
+    }
+    if (!rect || (!rect.height && !rect.top)) {
+      try {
+        const res = editor.view.domAtPos(editor.state.selection.from)
+        const el = res.node.nodeType === 1 ? res.node : res.node.parentElement
+        rect = el?.getBoundingClientRect() || null
+      } catch {
+        rect = null
+      }
+    }
+    if (!rect) return
+    const wrapRect = wrap.getBoundingClientRect()
+    wrap.scrollTop = Math.max(
+      0,
+      wrap.scrollTop + (rect.top - wrapRect.top) - wrapRect.height / 3,
+    )
+  })
+}
 
 // ---------- 模式切换 ----------
 function setMode(next) {
   if (next === mode) return
-  mode = next
-  if (mode === 'source') {
-    loading = true
-    setSourceDoc(cm, getMarkdown(editor)) // 程序性装载，不标脏
-    loading = false
+  if (next === 'source') {
+    // 没有改过所见即所得 → 直接显示打开/保存时的文件原文，避免序列化改写
+    let text = rawMarkdown
+    if (wysiwygEdited) {
+      text = getMarkdown(editor)
+      rawMarkdown = text
+      wysiwygEdited = false
+    }
+    // 先记住视口 1/3 处在原文中的行，再切过去
+    blockLineMap = buildBlockLineMap(text, editor.state.doc)
+    const caretLine = sourceLineAt(wysiwygViewportAnchorPos())
+    mode = 'source'
+    document.body.classList.add('source-mode')
+    setSourceText(text)
+    sourceDirty = false
     elTiptapWrap.classList.add('hidden')
-    elCmWrap.classList.remove('hidden')
-    elModeBtn.textContent = '所见即所得'
+    elSourceWrap.classList.remove('hidden')
     elMode.textContent = '源码模式'
-    cm.focus()
+    placeSourceCaret(caretLine)
   } else {
-    // CodeMirror onChange 已实时同步进 tiptap，直接切回
-    elCmWrap.classList.add('hidden')
+    // 记住源码里视口 1/3 处的行；源码改过就用原文重新解析，保证所见即所得准确
+    const line = sourceViewportLine()
+    const text = getSourceText()
+    mode = 'wysiwyg'
+    document.body.classList.remove('source-mode')
+    if (sourceDirty) {
+      loadContent(text)
+    } else {
+      blockLineMap = buildBlockLineMap(text, editor.state.doc)
+    }
+    elSourceWrap.classList.add('hidden')
     elTiptapWrap.classList.remove('hidden')
-    elModeBtn.textContent = '源码模式'
     elMode.textContent = '所见即所得'
-    editor.commands.focus()
+    try {
+      editor.chain().focus().setTextSelection(docPosAtLine(line)).run()
+    } catch {
+      editor.commands.focus()
+    }
+    scrollCaretToThird()
   }
+  // 按钮始终保持 SVG 图标，只切换高亮状态与提示文字
+  elModeBtn.classList.toggle('active', mode === 'source')
+  elModeBtn.title =
+    mode === 'source'
+      ? '切换到所见即所得 (Ctrl+/)'
+      : '切换到源码模式 (Ctrl+/)'
+  // 切换后按当前模式的文本重建大纲（源码模式按纯文本里的 # 行）
+  refreshOutline()
+  if (findBarOpen()) computeFindMatches(0)
 }
 
 elModeBtn.addEventListener('click', () =>
   setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg'),
 )
 
-// ---------- 表格：标题栏插入 + 表格内右键菜单 ----------
+// ---------- 查找 / 替换 ----------
+// 两种模式共用同一个面板：所见即所得用 ProseMirror 装饰高亮，源码模式用 CodeMirror 装饰
+const findBar = $('findbar')
+const findInput = $('find-input')
+const findCount = $('find-count')
+const replaceRow = $('find-replace-row')
+const replaceInput = $('replace-input')
+const btnFindCase = $('find-case')
+const btnFindWord = $('find-word')
+const btnFindRegex = $('find-regex')
+const btnFindShowReplace = $('find-show-replace')
+const btnFindPrev = $('find-prev')
+const btnFindNext = $('find-next')
+const btnReplaceOne = $('replace-one')
+const btnReplaceAll = $('replace-all')
+
+const findOptions = { caseSensitive: false, wholeWord: false, regex: false }
+let findMatches = [] // [{from,to}]
+let findActive = -1
+let findRefreshTimer = null
+
+function findBarOpen() {
+  return !findBar.classList.contains('hidden')
+}
+
+function caretPos() {
+  return mode === 'source'
+    ? cmView.state.selection.main.head
+    : editor.state.selection.from
+}
+
+// 所见即所得：按文本块拼接文字，记录每个字符对应的文档位置
+// （同一段落里的加粗/斜体等会把文本拆成多个节点，这里要把它们拼回去）
+function wysiwygSearchBlocks() {
+  const blocks = []
+  let cur = null
+  editor.state.doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      cur = { text: '', pos: [] }
+      blocks.push(cur)
+      return true
+    }
+    if (node.isText && cur) {
+      const text = node.text || ''
+      cur.text += text
+      for (let i = 0; i < text.length; i += 1) cur.pos.push(pos + i)
+    }
+    return true
+  })
+  return blocks
+}
+
+function buildSearchRegex(query) {
+  let src = findOptions.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (findOptions.wholeWord) {
+    src = `(?<![\\p{L}\\p{N}_])(?:${src})(?![\\p{L}\\p{N}_])`
+  }
+  try {
+    return new RegExp(src, 'g' + (findOptions.caseSensitive ? '' : 'i') + 'u')
+  } catch {
+    return null
+  }
+}
+
+function applyFindHighlights() {
+  if (!findBarOpen()) return
+  if (mode === 'source') {
+    renderSourceHighlight()
+    return
+  }
+  setSearchHighlight(editor, findMatches, findActive)
+}
+
+function updateFindUI() {
+  const has = findMatches.length > 0
+  findCount.classList.remove('bad')
+  if (!findInput.value) findCount.textContent = '0/0'
+  else if (has) findCount.textContent = `${findActive + 1}/${findMatches.length}`
+  else findCount.textContent = '无结果'
+  btnFindPrev.disabled = !has
+  btnFindNext.disabled = !has
+  btnReplaceOne.disabled = !has
+  btnReplaceAll.disabled = !has
+  applyFindHighlights()
+}
+
+function computeFindMatches(anchor) {
+  const query = findInput.value
+  findMatches = []
+  findActive = -1
+  if (!query) {
+    updateFindUI()
+    return
+  }
+  const re = buildSearchRegex(query)
+  if (!re) {
+    findCount.textContent = '正则无效'
+    findCount.classList.add('bad')
+    btnFindPrev.disabled = true
+    btnFindNext.disabled = true
+    btnReplaceOne.disabled = true
+    btnReplaceAll.disabled = true
+    applyFindHighlights()
+    return
+  }
+  if (mode === 'source') {
+    const text = getSourceText()
+    let m
+    while ((m = re.exec(text))) {
+      if (!m[0].length) {
+        re.lastIndex += 1
+        continue
+      }
+      findMatches.push({ from: m.index, to: m.index + m[0].length })
+    }
+  } else {
+    for (const block of wysiwygSearchBlocks()) {
+      re.lastIndex = 0
+      let m
+      while ((m = re.exec(block.text))) {
+        if (!m[0].length) {
+          re.lastIndex += 1
+          continue
+        }
+        findMatches.push({
+          from: block.pos[m.index],
+          to: block.pos[m.index + m[0].length - 1] + 1,
+        })
+      }
+    }
+  }
+  if (findMatches.length) {
+    const idx = findMatches.findIndex((m) => m.from >= (anchor ?? 0))
+    findActive = idx >= 0 ? idx : 0
+  }
+  updateFindUI()
+}
+
+function scheduleFindRefresh() {
+  if (!findBarOpen()) return
+  clearTimeout(findRefreshTimer)
+  findRefreshTimer = setTimeout(() => {
+    if (!findBarOpen()) return
+    computeFindMatches(caretPos())
+  }, 0)
+}
+
+// 源码模式：选中匹配处并滚到可视区约 1/3；不抢查找框焦点（否则没法继续输入）
+function revealSourceRange(from, to) {
+  cmView.dispatch({ selection: { anchor: from, head: to } })
+  scrollSourceOffsetTo(from)
+}
+
+function scrollToActiveMatch() {
+  const m = findMatches[findActive]
+  if (!m) return
+  if (mode === 'source') {
+    revealSourceRange(m.from, m.to)
+    return
+  }
+  // 不抢查找框焦点，也不改编辑区选区（避免气泡菜单弹出），只滚动到匹配处
+  try {
+    const res = editor.view.domAtPos(m.from)
+    const el = res.node.nodeType === 1 ? res.node : res.node.parentElement
+    el?.scrollIntoView({ block: 'center' })
+  } catch {
+    /* 位置可能已失效 */
+  }
+}
+
+function stepFind(dir) {
+  if (!findMatches.length) return
+  const n = findMatches.length
+  findActive = ((findActive + dir) % n + n) % n
+  updateFindUI()
+  scrollToActiveMatch()
+}
+
+function openFind(withReplace = false) {
+  const firstOpen = !findBarOpen()
+  findBar.classList.remove('hidden')
+  replaceRow.classList.toggle('hidden', !withReplace)
+  btnFindShowReplace.classList.toggle('active', withReplace)
+  if (firstOpen) {
+    // 有选中文字时把它作为查找词（和 Typora 一致）
+    try {
+      let selected = ''
+      if (mode === 'source') {
+        const sel = cmView.state.selection.main
+        selected = getSourceText().slice(sel.from, sel.to)
+      } else {
+        const sel = editor.state.selection
+        if (sel.from !== sel.to) {
+          selected = editor.state.doc.textBetween(sel.from, sel.to, '\n')
+        }
+      }
+      if (selected && selected.length <= 500 && !selected.includes('\n')) {
+        findInput.value = selected
+      }
+    } catch {
+      /* 选区不合法，忽略 */
+    }
+  }
+  findInput.focus()
+  findInput.select()
+  computeFindMatches(caretPos())
+}
+
+function closeFind() {
+  clearTimeout(findRefreshTimer)
+  findBar.classList.add('hidden')
+  findMatches = []
+  findActive = -1
+  if (mode === 'source') {
+    renderSourceHighlight()
+    cmView.focus()
+  } else {
+    setSearchHighlight(editor, [], -1)
+    editor.commands.focus()
+  }
+}
+
+function replaceOnce() {
+  const m = findMatches[findActive]
+  if (!m) return
+  const rep = replaceInput.value
+  const anchor = m.from + rep.length
+  if (mode === 'source') {
+    // 更新监听器会自动标脏/刷新统计与大纲
+    cmView.dispatch({
+      changes: { from: m.from, to: m.to, insert: rep },
+      selection: { anchor },
+    })
+  } else {
+    editor.view.dispatch(editor.state.tr.insertText(rep, m.from, m.to))
+  }
+  computeFindMatches(anchor)
+  scrollToActiveMatch()
+}
+
+function replaceEvery() {
+  if (!findMatches.length) return
+  const rep = replaceInput.value
+  if (mode === 'source') {
+    // findMatches 本身是升序的，CM 一次性原子替换
+    cmView.dispatch({
+      changes: findMatches.map((m) => ({ from: m.from, to: m.to, insert: rep })),
+    })
+  } else {
+    const tr = editor.state.tr
+    for (let i = findMatches.length - 1; i >= 0; i -= 1) {
+      tr.insertText(rep, findMatches[i].from, findMatches[i].to)
+    }
+    editor.view.dispatch(tr)
+  }
+  computeFindMatches(0)
+}
+
+$('btn-find').addEventListener('click', () => {
+  if (findBarOpen()) closeFind()
+  else openFind(false)
+})
+$('find-close').addEventListener('click', closeFind)
+btnFindPrev.addEventListener('click', () => stepFind(-1))
+btnFindNext.addEventListener('click', () => stepFind(1))
+btnReplaceOne.addEventListener('click', replaceOnce)
+btnReplaceAll.addEventListener('click', replaceEvery)
+
+function toggleFindOption(key, btn) {
+  findOptions[key] = !findOptions[key]
+  btn.classList.toggle('active', findOptions[key])
+  computeFindMatches(caretPos())
+  findInput.focus()
+}
+btnFindCase.addEventListener('click', () => toggleFindOption('caseSensitive', btnFindCase))
+btnFindWord.addEventListener('click', () => toggleFindOption('wholeWord', btnFindWord))
+btnFindRegex.addEventListener('click', () => toggleFindOption('regex', btnFindRegex))
+
+btnFindShowReplace.addEventListener('click', () => {
+  const show = replaceRow.classList.contains('hidden')
+  replaceRow.classList.toggle('hidden', !show)
+  btnFindShowReplace.classList.toggle('active', show)
+  if (show) replaceInput.focus()
+  else findInput.focus()
+})
+
+findInput.addEventListener('input', () => computeFindMatches(caretPos()))
+findInput.addEventListener('keydown', (e) => {
+  e.stopPropagation()
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    stepFind(e.shiftKey ? -1 : 1)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    closeFind()
+  } else if (e.ctrlKey && e.key.toLowerCase() === 'h') {
+    e.preventDefault()
+    replaceRow.classList.remove('hidden')
+    btnFindShowReplace.classList.add('active')
+    replaceInput.focus()
+  }
+})
+replaceInput.addEventListener('keydown', (e) => {
+  e.stopPropagation()
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    replaceOnce()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    closeFind()
+  }
+})
+
+// 文档变化后刷新匹配（不抢焦点、不重排光标）
+editor.on('transaction', ({ transaction }) => {
+  if (transaction.docChanged) scheduleFindRefresh()
+})
+
+// 表格：标题栏插入 + 表格内右键菜单
 $('tb-insert').addEventListener('click', () => {
   editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
 })
@@ -468,14 +1043,9 @@ function toggleOutline(open) {
 $('btn-outline').addEventListener('click', () => toggleOutline())
 $('btn-outline-close').addEventListener('click', () => toggleOutline(false))
 
-// 从文档收集顶层标题构建大纲
+// 大纲：所见即所得从文档结构取，源码模式从纯文本按行取
 function refreshOutline() {
-  const items = []
-  editor.state.doc.forEach((node, offset) => {
-    if (node.type.name === 'heading') {
-      items.push({ level: node.attrs.level, text: node.textContent, pos: offset })
-    }
-  })
+  const items = mode === 'source' ? sourceOutlineItems() : docOutlineItems()
   outlineList.innerHTML = ''
   if (!items.length) {
     const empty = document.createElement('div')
@@ -494,22 +1064,40 @@ function refreshOutline() {
   }
 }
 
+function docOutlineItems() {
+  const items = []
+  editor.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'heading') {
+      items.push({ level: node.attrs.level, text: node.textContent, pos: offset })
+    }
+  })
+  return items
+}
+
+function sourceOutlineItems() {
+  const lines = getSourceText().split('\n')
+  const items = []
+  let offset = 0
+  let inFence = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence
+    } else if (!inFence) {
+      const m = /^\s{0,3}(#{1,6})\s+(.+)$/.exec(line)
+      if (m) items.push({ level: m[1].length, text: m[2].trim(), pos: offset })
+    }
+    offset += line.length + 1
+  }
+  return items
+}
+
 function jumpToHeading(item) {
   if (mode === 'source') {
-    // 源码模式：在 markdown 源里定位对应标题行
-    const prefix = '#'.repeat(item.level) + ' '
-    const lines = getSourceDoc(cm).split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).includes(item.text)) {
-        const line = cm.state.doc.line(i + 1)
-        cm.dispatch({
-          selection: { anchor: line.from },
-          effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
-        })
-        cm.focus()
-        return
-      }
-    }
+    const pos = Math.min(item.pos, cmView.state.doc.length)
+    cmView.focus()
+    cmView.dispatch({ selection: { anchor: pos } })
+    scrollSourceOffsetTo(pos)
     return
   }
   // 所见即所得：滚动到标题 DOM
@@ -610,6 +1198,9 @@ async function openRecentFile(path) {
 
 $('wc-new').addEventListener('click', newDocument)
 $('wc-open').addEventListener('click', openFile)
+// 启动页右上角：复用顶部工具栏的主题/设置逻辑
+$('wc-theme').addEventListener('click', () => $('btn-theme').click())
+$('wc-settings').addEventListener('click', () => openSettings())
 
 // wails 文件拖放：.md 打开文档，图片导入编辑器
 // 注意：wails 事件参数为 (x, y, paths)
@@ -819,31 +1410,38 @@ async function openFileInNewWindow() {
 }
 
 function loadContent(md) {
-  loading = true
+  lastMarkdown = md
+  rawMarkdown = md
+  wysiwygEdited = false
+  sourceDirty = false
   setMarkdown(editor, md)
-  setSourceDoc(cm, md)
+  setSourceText(md)
+  // 记录每个块在文件文本里的行，供模式切换时定位
+  blockLineMap = buildBlockLineMap(md, editor.state.doc)
   refreshStats(md)
   refreshOutline()
-  loading = false
 }
 
 function currentMarkdown() {
-  return mode === 'source' ? getSourceDoc(cm) : getMarkdown(editor)
+  return mode === 'source' ? getSourceText() : getMarkdown(editor)
 }
 
 async function saveDocument() {
   const app = wails()
   if (!app) return
   try {
+    const md = currentMarkdown()
     const saved = currentPath
-      ? await app.SaveMarkdown(currentMarkdown())
-      : await app.SaveMarkdownAs(currentMarkdown())
+      ? await app.SaveMarkdown(md)
+      : await app.SaveMarkdownAs(md)
     if (!saved) return // 另存为被取消
     const dirChanged = dirName(currentPath) !== dirName(saved)
     currentPath = saved
+    rawMarkdown = md
+    if (mode === 'wysiwyg' && lastMarkdown === md) wysiwygEdited = false
     dirty = false
     refreshHeader()
-    if (dirChanged) loadContent(currentMarkdown())
+    if (dirChanged) loadContent(md)
   } catch (e) {
     console.error(e)
     alert('保存失败: ' + e)
@@ -854,13 +1452,16 @@ async function saveFileAs() {
   const app = wails()
   if (!app) return
   try {
-    const saved = await app.SaveMarkdownAs(currentMarkdown())
+    const md = currentMarkdown()
+    const saved = await app.SaveMarkdownAs(md)
     if (!saved) return
     const dirChanged = dirName(currentPath) !== dirName(saved)
     currentPath = saved
+    rawMarkdown = md
+    if (mode === 'wysiwyg' && lastMarkdown === md) wysiwygEdited = false
     dirty = false
     refreshHeader()
-    if (dirChanged) loadContent(currentMarkdown())
+    if (dirChanged) loadContent(md)
   } catch (e) {
     console.error(e)
     alert('另存为失败: ' + e)
@@ -976,6 +1577,12 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault()
     if (e.shiftKey) openFileInNewWindow()
     else openFile()
+  } else if (k === 'f') {
+    e.preventDefault()
+    openFind(false)
+  } else if (k === 'h') {
+    e.preventDefault()
+    openFind(true)
   } else if (k === '/') {
     e.preventDefault()
     setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg')

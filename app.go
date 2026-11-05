@@ -352,6 +352,14 @@ func (a *App) SaveSettings(s Settings) (Settings, error) {
 	if err := saveSettingsToDisk(s); err != nil {
 		return s, err
 	}
+	// 主题变化时同步原生窗口边框（顶部标题栏/最小化按钮那排）
+	if a.ctx != nil {
+		if s.Theme == "light" {
+			runtime.WindowSetLightTheme(a.ctx)
+		} else {
+			runtime.WindowSetDarkTheme(a.ctx)
+		}
+	}
 	return s, nil
 }
 

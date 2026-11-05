@@ -8,7 +8,7 @@
   "frontend:dev:serverUrl": "auto",
   "info": {
     "productName": "Typora Lite",
-    "productVersion": "0.15.7",
+    "productVersion": "0.21.4",
     "comments": "A minimal Typora-style Markdown editor built with Wails + Tiptap"
   }
 }

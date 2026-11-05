@@ -9,15 +9,23 @@
   <div id="app">
     <header class="titlebar">
       <div class="title-left">
+        <!-- 文件操作 -->
         <button id="btn-open" class="icon-btn" title="打开 (Ctrl+O；按设置的打开方式处理)">
           <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         </button>
         <button id="btn-save" class="icon-btn" title="保存 (Ctrl+S)">
           <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         </button>
-        <button id="btn-save-as" class="icon-btn" title="另存为">
-          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <button id="btn-save-as" class="icon-btn" title="另存为（保存副本）">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         </button>
+        <span class="divider"></span>
+        <!-- 查找 -->
+        <button id="btn-find" class="icon-btn" title="查找 / 替换 (Ctrl+F / Ctrl+H)">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+        </button>
+        <span class="divider"></span>
+        <!-- 插入（源码模式下隐藏） -->
         <button id="tb-insert" class="icon-btn" title="插入 3x3 表格">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
         </button>
@@ -27,18 +35,21 @@
       </div>
       <div class="title-center" id="file-title">未命名</div>
       <div class="title-right">
-        <button id="btn-theme" class="icon-btn" title="切换明暗主题">
-          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <!-- 模式切换：所见即所得时显示代码图标，源码模式时显示眼睛图标 -->
+        <button id="btn-mode" class="icon-btn mode-toggle" title="切换到源码模式 (Ctrl+/)">
+          <svg class="icon-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <svg class="icon-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
         <button id="btn-outline" class="icon-btn" title="显示 / 隐藏目录大纲">
           <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         </button>
+        <span class="divider"></span>
+        <button id="btn-theme" class="icon-btn theme-toggle" title="切换明暗主题">
+          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
         <button id="btn-settings" class="icon-btn" title="设置">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-        <button id="btn-mode" class="icon-btn" title="切换源码 / 所见即所得 (Ctrl+/)">
-          <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </button>
       </div>
     </header>
@@ -47,7 +58,9 @@
       <main class="editor-wrap">
         <div class="paper">
           <div id="tiptap-editor"></div>
-          <div id="codemirror-editor" class="hidden"></div>
+          <div id="source-wrap" class="source-wrap hidden">
+            <div id="source-editor" class="source-editor"></div>
+          </div>
         </div>
       </main>
 
@@ -61,13 +74,24 @@
       </aside>
     </div>
 
-    <!-- 选中文本悬浮气泡 -->
-    <div id="bubble-menu" class="bubble-menu">
-      <button data-cmd="bold" title="加粗 (Ctrl+B)"><b>B</b></button>
-      <button data-cmd="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
-      <button data-cmd="strike" title="删除线"><s>S</s></button>
-      <button data-cmd="highlight" title="高亮"><mark>H</mark></button>
-      <button data-cmd="code" title="行内代码">&lt;/&gt;</button>
+    <!-- 查找 / 替换 -->
+    <div id="findbar" class="findbar hidden">
+      <div class="findbar-row">
+        <input id="find-input" type="text" placeholder="查找" spellcheck="false" />
+        <span id="find-count" class="find-count">0/0</span>
+        <button id="find-prev" title="上一个 (Shift+Enter)">↑</button>
+        <button id="find-next" title="下一个 (Enter)">↓</button>
+        <button id="find-case" class="find-toggle" title="区分大小写">Aa</button>
+        <button id="find-word" class="find-toggle" title="全词匹配">W</button>
+        <button id="find-regex" class="find-toggle" title="正则表达式">.*</button>
+        <button id="find-show-replace" class="find-toggle" title="显示替换 (Ctrl+H)">替换</button>
+        <button id="find-close" title="关闭 (Esc)">×</button>
+      </div>
+      <div class="findbar-row hidden" id="find-replace-row">
+        <input id="replace-input" type="text" placeholder="替换为" spellcheck="false" />
+        <button id="replace-one" class="find-text-btn">替换</button>
+        <button id="replace-all" class="find-text-btn">全部替换</button>
+      </div>
     </div>
 
     <footer class="statusbar">
@@ -146,6 +170,15 @@
 
   <!-- 启动页：新建 / 打开 / 拖拽 -->
   <div id="welcome-screen" class="welcome-screen hidden">
+    <div class="welcome-corner">
+      <button id="wc-theme" class="icon-btn theme-toggle" title="切换明暗主题">
+        <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button id="wc-settings" class="icon-btn" title="设置">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
     <div class="welcome-card">
       <h1>Typora Lite</h1>
       <p class="welcome-sub">简洁的 Markdown 编辑器</p>

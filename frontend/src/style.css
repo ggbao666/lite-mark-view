@@ -11,30 +11,44 @@
   --accent: #4078c0;
   --code-bg: #f6f8fa;
   --quote-fg: #6a737d;
-  --mark-bg: #fff3a3;
   --scrollbar-thumb: #d0d0d0;
   --shadow: rgba(0, 0, 0, 0.12);
   --paper-max: 820px;
   --titlebar-h: 32px;
   --statusbar-h: 28px;
+  /* 代码高亮（亮色） */
+  --hl-keyword: #a626a4;
+  --hl-string: #50a14f;
+  --hl-number: #986801;
+  --hl-comment: #a0a1a7;
+  --hl-title: #4078f2;
+  --hl-attr: #e45649;
+  --hl-builtin: #0184bc;
 }
 
 /* 暗色主题（默认） */
 body.dark {
-  --bg: #1e1e1e;
-  --panel-bg: #252526;
-  --hover-bg: #2d2d30;
-  --active-bg: #094771;
-  --input-bg: #3c3c3c;
-  --fg: #d4d4d4;
-  --fg-soft: #9a9a9a;
-  --border: #3c3c3c;
+  --bg: #2a2b2d;
+  --panel-bg: #323336;
+  --hover-bg: #3a3b3e;
+  --active-bg: #0b548c;
+  --input-bg: #454649;
+  --fg: #dcdcdc;
+  --fg-soft: #a5a5a5;
+  --border: #48494d;
   --accent: #4f8cc9;
-  --code-bg: #2d2d30;
-  --quote-fg: #8a8a8a;
-  --mark-bg: #b58900;
-  --scrollbar-thumb: #424242;
+  --code-bg: #353639;
+  --quote-fg: #969696;
+  --scrollbar-thumb: #505256;
   --shadow: rgba(0, 0, 0, 0.45);
+  /* 代码高亮（暗色） */
+  --hl-keyword: #c586c0;
+  --hl-string: #ce9178;
+  --hl-number: #b5cea8;
+  --hl-comment: #6a9955;
+  --hl-title: #dcdcaa;
+  --hl-attr: #9cdcfe;
+  --hl-builtin: #4ec9b0;
 }
 
 * {
@@ -92,21 +106,11 @@ body {
 .title-right {
   display: flex;
   gap: 4px;
+  align-items: center;
 }
 
 .title-right {
   justify-content: flex-end;
-}
-
-.titlebar button {
-  border: none;
-  background: transparent;
-  color: var(--fg-soft);
-  font-size: 13px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
 }
 
 .titlebar .divider {
@@ -116,26 +120,32 @@ body {
   margin: 0 6px;
 }
 
-.titlebar button:hover {
+/* 图标按钮（细线 SVG 风格；顶部工具栏与欢迎页共用） */
+.icon-btn {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-soft);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.icon-btn:hover {
   background: var(--hover-bg);
 }
 
-.titlebar button.active {
+.icon-btn.active {
   background: var(--active-bg);
   color: var(--accent);
 }
 
-/* 图标按钮（细线 SVG 风格） */
-.titlebar button.icon-btn {
-  width: 30px;
-  height: 26px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.titlebar button.icon-btn svg {
+.icon-btn svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -146,20 +156,33 @@ body {
 }
 
 /* 主题切换按钮：暗色显示太阳（切向亮色），亮色显示月亮（切向暗色） */
-.titlebar button.icon-btn .icon-sun {
+.theme-toggle .icon-sun {
   display: none;
 }
 
-.titlebar button.icon-btn .icon-moon {
+.theme-toggle .icon-moon {
   display: block;
 }
 
-body.dark .titlebar button.icon-btn .icon-sun {
+body.dark .theme-toggle .icon-sun {
   display: block;
 }
 
-body.dark .titlebar button.icon-btn .icon-moon {
+body.dark .theme-toggle .icon-moon {
   display: none;
+}
+
+/* 模式切换按钮：所见即所得显示代码图标（切向源码），源码模式显示眼睛图标（切回所见即所得） */
+.mode-toggle .icon-eye {
+  display: none;
+}
+
+body.source-mode .mode-toggle .icon-code {
+  display: none;
+}
+
+body.source-mode .mode-toggle .icon-eye {
+  display: block;
 }
 
 .title-center {
@@ -209,17 +232,62 @@ body.dark .titlebar button.icon-btn .icon-moon {
   padding: 8px 32px 30vh;
 }
 
-#codemirror-editor {
-  height: 100%;
+/* ===== 源码模式：CodeMirror 6，直接显示文件原文 ===== */
+.source-wrap {
+  position: relative;
 }
 
-#codemirror-editor .cm-editor {
-  height: 100%;
+.source-editor .cm-editor {
+  height: auto;
+  background: transparent;
+  color: var(--fg);
   font-size: 14px;
 }
 
-#codemirror-editor .cm-editor.cm-focused {
+.source-editor .cm-editor.cm-focused {
   outline: none;
+}
+
+.source-editor .cm-scroller {
+  /* 编辑器随内容长高，滚动交给外层页面（和所见即所得一致） */
+  overflow: visible;
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
+  line-height: 1.75;
+}
+
+.source-editor .cm-content {
+  padding: 0;
+  min-height: calc(100vh - var(--titlebar-h) - var(--statusbar-h) - 16px);
+  caret-color: var(--fg);
+}
+
+.source-editor .cm-cursor {
+  border-left-color: var(--fg);
+  border-left-width: 2px;
+}
+
+.source-editor .cm-editor .cm-selectionBackground,
+.source-editor .cm-editor.cm-focused .cm-selectionBackground,
+.source-editor .cm-content ::selection {
+  background: rgba(79, 140, 201, 0.35);
+}
+
+.source-editor .cm-activeLine {
+  background: transparent;
+}
+
+/* 查找匹配高亮（CM 装饰 span） */
+.source-editor .find-mark {
+  background: rgba(255, 213, 0, 0.35);
+  border-radius: 2px;
+}
+
+body.dark .source-editor .find-mark {
+  background: rgba(255, 213, 0, 0.28);
+}
+
+.source-editor .find-mark-active {
+  background: rgba(79, 140, 201, 0.55);
 }
 
 /* ===== Tiptap 内容排版（Typora 风格） ===== */
@@ -261,8 +329,17 @@ body.dark .titlebar button.icon-btn .icon-moon {
 }
 
 .ProseMirror a {
+  cursor: pointer;
   color: var(--accent);
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 链接展开成原文时，名称与地址保持链接色，括号为语法灰 */
+.md-link-text {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .ProseMirror a:hover {
@@ -297,6 +374,208 @@ body.dark .titlebar button.icon-btn .icon-moon {
   background: none;
   padding: 0;
   font-size: inherit;
+}
+
+/* ===== 代码块：语言选择 / 复制 / 语法高亮 ===== */
+.code-block {
+  position: relative;
+}
+
+.code-block-bar {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.code-block:hover .code-block-bar,
+.code-block:focus-within .code-block-bar {
+  opacity: 1;
+}
+
+.code-block-bar .code-lang,
+.code-block-bar .code-copy {
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--fg-soft);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.code-block-bar .code-lang {
+  padding: 0 4px;
+  max-width: 130px;
+}
+
+.code-block-bar .code-copy {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.code-block-bar .code-lang:hover,
+.code-block-bar .code-copy:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.ProseMirror pre code .hljs-comment,
+.ProseMirror pre code .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+.ProseMirror pre code .hljs-keyword,
+.ProseMirror pre code .hljs-selector-tag,
+.ProseMirror pre code .hljs-doctag {
+  color: var(--hl-keyword);
+}
+
+.ProseMirror pre code .hljs-string,
+.ProseMirror pre code .hljs-regexp,
+.ProseMirror pre code .hljs-template-tag {
+  color: var(--hl-string);
+}
+
+.ProseMirror pre code .hljs-number,
+.ProseMirror pre code .hljs-literal {
+  color: var(--hl-number);
+}
+
+.ProseMirror pre code .hljs-title,
+.ProseMirror pre code .hljs-section,
+.ProseMirror pre code .hljs-name {
+  color: var(--hl-title);
+}
+
+.ProseMirror pre code .hljs-attr,
+.ProseMirror pre code .hljs-attribute,
+.ProseMirror pre code .hljs-variable,
+.ProseMirror pre code .hljs-params {
+  color: var(--hl-attr);
+}
+
+.ProseMirror pre code .hljs-built_in,
+.ProseMirror pre code .hljs-type,
+.ProseMirror pre code .hljs-symbol {
+  color: var(--hl-builtin);
+}
+
+.ProseMirror pre code .hljs-meta {
+  color: var(--fg-soft);
+}
+
+/* ===== 查找 / 替换 ===== */
+.findbar {
+  position: fixed;
+  top: calc(var(--titlebar-h) + 8px);
+  right: 18px;
+  z-index: 140;
+  width: 380px;
+  max-width: calc(100vw - 36px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px var(--shadow);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.findbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.findbar input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.findbar input:focus {
+  border-color: var(--accent);
+}
+
+.find-count {
+  min-width: 52px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.find-count.bad {
+  color: #c0392b;
+}
+
+.findbar button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.findbar button:hover {
+  background: var(--hover-bg);
+  color: var(--fg);
+}
+
+.findbar button.active {
+  background: var(--active-bg);
+  color: var(--accent);
+}
+
+.findbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.findbar button.find-text-btn {
+  width: auto;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.find-match {
+  background: rgba(255, 213, 0, 0.35);
+  border-radius: 2px;
+}
+
+body.dark .find-match {
+  background: rgba(255, 213, 0, 0.28);
+}
+
+.find-match-active {
+  background: var(--accent);
+  color: #fff;
 }
 
 .ProseMirror ul,
@@ -526,59 +805,36 @@ body.dark .titlebar button.icon-btn .icon-moon {
   filter: brightness(0.97);
 }
 
-/* ===== 选中文字悬浮气泡 ===== */
-.bubble-menu {
-  /* 必须脱离文档流：初始隐藏时若仍在流内会占据高度，把编辑区挤短 */
-  position: fixed;
-  top: 0;
-  left: 0;
-  display: flex;
-  gap: 2px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 4px;
-  box-shadow: 0 4px 16px var(--shadow);
-  /* 初始隐藏；BubbleMenu 扩展以内联样式接管显隐与定位 */
-  visibility: hidden;
-  z-index: 150;
+/* 展开成原文时：语法标记灰色，可直接用光标选中/移动 */
+.md-syntax {
+  color: var(--fg-soft);
 }
 
-.bubble-menu button {
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  min-width: 34px;
-  height: 30px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 14px;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.12s;
+/* 原文中内容的临时样式（纯装饰，收回格式后由 mark 渲染） */
+.md-bold {
+  font-weight: 700;
 }
 
-.bubble-menu button:hover {
-  background: var(--hover-bg);
+.md-italic {
+  font-style: italic;
 }
 
-.bubble-menu button.is-active {
-  background: var(--accent);
-  color: #fff;
+.md-strike {
+  text-decoration: line-through;
 }
 
-.bubble-menu button.is-active mark {
-  background: transparent;
-  color: #fff;
+.md-code {
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
+  font-size: 0.875em;
+  background: var(--code-bg);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
 }
 
-.ProseMirror mark {
-  background: var(--mark-bg);
-  color: inherit;
-  padding: 0.1em 0.2em;
-  border-radius: 3px;
+/* 源码模式只保留通用操作；插入表格/链接属于所见即所得 */
+body.source-mode #tb-insert,
+body.source-mode #tb-link {
+  display: none;
 }
 
 /* ===== 右键菜单 ===== */
@@ -726,6 +982,15 @@ body.dark .titlebar button.icon-btn .icon-moon {
   text-align: center;
   width: 420px;
   max-width: 90vw;
+}
+
+/* 启动页右上角：主题切换 / 设置 */
+.welcome-corner {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
 }
 
 .welcome-card h1 {
