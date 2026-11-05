@@ -539,14 +539,14 @@ func (a *App) ViewImage(path string) error {
 	return exec.Command(exe, "--image-viewer", abs).Start()
 }
 
-// RevealInExplorer 在资源管理器中定位图片文件
+// RevealInExplorer 在资源管理器中定位文件（图片、文档等）
 func (a *App) RevealInExplorer(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
 	if _, err := os.Stat(abs); err != nil {
-		return fmt.Errorf("图片不存在: %w", err)
+		return fmt.Errorf("文件不存在: %w", err)
 	}
 	return exec.Command("explorer", "/select,"+abs).Start()
 }

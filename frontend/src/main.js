@@ -30,6 +30,7 @@ const elWords = $('status-words')
 const elMode = $('status-mode')
 const elDirty = $('status-dirty')
 const elPath = $('status-path')
+const elReveal = $('status-reveal')
 const elTiptapWrap = $('tiptap-editor')
 const elSourceWrap = $('source-wrap')
 const elSource = $('source-editor')
@@ -68,6 +69,8 @@ function refreshHeader() {
   const dir = dirName(currentPath)
   elPath.textContent = dir
   elPath.title = dir
+  // 有真实文件路径时才显示「打开所在目录」
+  elReveal.classList.toggle('hidden', !currentPath)
 }
 
 // ---------- 标题栏点击重命名 ----------
@@ -1471,6 +1474,12 @@ async function saveFileAs() {
 $('btn-open').addEventListener('click', openFile)
 $('btn-save').addEventListener('click', saveDocument)
 $('btn-save-as').addEventListener('click', saveFileAs)
+
+// 状态栏「打开所在目录」：在资源管理器中定位当前文件
+$('status-reveal').addEventListener('click', () => {
+  if (!currentPath) return
+  wails()?.RevealInExplorer(currentPath)
+})
 
 // ---------- 设置面板 ----------
 const overlay = $('settings-overlay')

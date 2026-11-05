@@ -687,6 +687,25 @@ body.dark .find-match {
   opacity: 0.75;
 }
 
+/* 状态栏里的「打开所在目录」按钮 */
+.statusbar .status-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.statusbar .status-btn:hover {
+  background: var(--hover-bg);
+  color: var(--fg);
+}
+
 /* ===== 设置面板 ===== */
 .modal-overlay {
   position: fixed;
