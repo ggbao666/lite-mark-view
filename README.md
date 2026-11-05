@@ -114,14 +114,18 @@ wails dev              # 开发模式（前端热更新）
 
 ## 自动打包
 
-仓库内置 GitHub Actions 工作流 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)：
+仓库内置 GitHub Actions 工作流 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)，只构建 Windows x64 版本：
 
-- 推送到 `main` 或提 PR：构建 Windows x64 版本，产物作为 artifact `TyporaLite-windows-amd64` 上传。
-- 推送 `v*` 标签：在上述构建之外，自动创建 GitHub Release 并附上 `TyporaLite.exe`。
+- **推送到 `main`**：构建后自动发布 / 更新滚动 Release（固定标签 `latest`，每次覆盖上传最新的 `TyporaLite.exe`），下载地址固定为
+  `https://github.com/<owner>/<repo>/releases/download/latest/TyporaLite.exe`
+- **推送 `v*` 标签**：额外创建带版本号的正式 Release（自动生成更新说明），并附带 `TyporaLite.exe`。
+- **PR / 手动触发**：只构建并上传 artifact `TyporaLite-windows-amd64`，不发布 Release。
+
+发版只需：
 
 ```bash
-git tag v0.21.4
-git push origin v0.21.4
+git tag v0.21.5
+git push origin v0.21.5
 ```
 
 ## 目录结构
