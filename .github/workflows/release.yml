@@ -130,22 +130,38 @@ jobs:
       - name: Build macOS Apple Silicon
         run: wails build -platform darwin/arm64 -clean
 
-      - name: Package DMG
+      # Wails 用 wails.json 的 name 命名 bundle（litemark-view.app），这里自动查找并统一成产品名
+      - name: Package macOS app
+        id: package
         run: |
-          test -d build/bin/LiteMarkView.app
-          hdiutil create -volname "LiteMark View" \
-            -srcfolder build/bin/LiteMarkView.app \
-            -ov -format UDZO build/bin/LiteMarkView-macOS-arm64.dmg
+          ls -la build/bin
+          APP=""
+          for d in build/bin/*.app; do
+            if [ -d "$d" ]; then APP="$d"; break; fi
+          done
+          test -n "$APP" || { echo "::error::未找到 .app 产物"; exit 1; }
+          if [ "$APP" != "build/bin/LiteMarkView.app" ]; then
+            mv "$APP" build/bin/LiteMarkView.app
+          fi
+          if hdiutil create -volname "LiteMark View" \
+              -srcfolder build/bin/LiteMarkView.app \
+              -ov -format UDZO build/bin/LiteMarkView-macOS-arm64.dmg; then
+            echo "asset=LiteMarkView-macOS-arm64.dmg" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::DMG 生成失败，改用 zip 兜底"
+            ditto -c -k --keepParent build/bin/LiteMarkView.app build/bin/LiteMarkView-macOS-arm64.zip
+            echo "asset=LiteMarkView-macOS-arm64.zip" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: LiteMarkView-macos-arm64
-          path: build/bin/LiteMarkView-macOS-arm64.dmg
+          path: build/bin/${{ steps.package.outputs.asset }}
           if-no-files-found: error
 
-      - name: Attach dmg to release
+      - name: Attach macOS build to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" build/bin/LiteMarkView-macOS-arm64.dmg --clobber
+        run: gh release upload "$TAG" "build/bin/${{ steps.package.outputs.asset }}" --clobber

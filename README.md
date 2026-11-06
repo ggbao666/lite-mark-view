@@ -127,6 +127,8 @@ macOS 版为 ad-hoc 签名、未做公证，首次打开若被 Gatekeeper 拦截
 | Windows x64 | `LiteMarkView.exe` | 单文件，双击运行 |
 | macOS Apple Silicon | `LiteMarkView-macOS-arm64.dmg` | 仅 arm64，不含 Intel / universal |
 
+> 若 DMG 打包异常，工作流会自动改附 `LiteMarkView-macOS-arm64.zip`，解压后把 `LiteMarkView.app` 拖进「应用程序」即可。
+
 发版步骤：先把 `wails.json` 的 `productVersion` 改成新版本号并提交，然后打标签推送：
 
 ```bash
