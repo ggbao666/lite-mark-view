@@ -32,3 +32,8 @@ func (a *App) RevealInExplorer(path string) error {
 	}
 	return exec.Command("open", "-R", abs).Start()
 }
+
+// nextWindowCascade macOS 版仅本地自行构建，窗口位置交给系统管理（不做级联）
+func nextWindowCascade(fromX, fromY int, hasFrom bool) (int, int, bool) {
+	return 0, 0, false
+}

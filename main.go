@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,9 +192,24 @@ func main() {
 	// 位置参数：要打开的 .md 文件路径（文件关联 / 拖到 exe 上）
 	openPath := ""
 	newWindowFlag := false
+	cascadeFromX, cascadeFromY := 0, 0
+	cascadeFromOK := false
+	const cascadePrefix = "--cascade-from="
 	for _, a := range args {
 		if strings.EqualFold(a, "--new-window") {
 			newWindowFlag = true
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(a), cascadePrefix) {
+			// 父窗口位置：新窗口相对「触发打开的那个窗口」错开
+			xy := strings.SplitN(a[len(cascadePrefix):], ",", 2)
+			if len(xy) == 2 {
+				x, errX := strconv.Atoi(xy[0])
+				y, errY := strconv.Atoi(xy[1])
+				if errX == nil && errY == nil {
+					cascadeFromX, cascadeFromY, cascadeFromOK = x, y, true
+				}
+			}
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
@@ -236,6 +252,14 @@ func main() {
 		winTheme = windows.Light
 	}
 
+	// 新窗口不要和触发打开的那个窗口完全重叠：按父窗口位置往右下错开
+	cascadeX, cascadeY, cascadeOK := nextWindowCascade(cascadeFromX, cascadeFromY, cascadeFromOK)
+	applyCascade := func(ctx context.Context) {
+		if cascadeOK {
+			wailsruntime.WindowSetPosition(ctx, cascadeX, cascadeY)
+		}
+	}
+
 	err = wails.Run(&options.App{
 		Title:  "LiteMark View",
 		Width:  initW,
@@ -252,7 +276,11 @@ func main() {
 			Handler:    localFileHandler(),
 			Middleware: viewerAssetMiddleware,
 		},
-		OnStartup:     app.startup,
+		OnStartup: func(ctx context.Context) {
+			app.startup(ctx)
+			applyCascade(ctx)
+		},
+		OnDomReady:    applyCascade,
 		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{
 			app,

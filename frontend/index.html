@@ -14,6 +14,7 @@
           <div class="menu" data-menu="file">
             <button class="menu-label" type="button">文件(F)</button>
             <div class="menu-pop hidden">
+              <button class="menu-item" data-action="quick-open" type="button"><span>快捷打开…</span><kbd>Ctrl+P</kbd></button>
               <button class="menu-item" data-action="btn-open" type="button"><span>打开 Markdown…</span><kbd>Ctrl+O</kbd></button>
               <button class="menu-item" data-action="btn-save" data-needs-doc type="button"><span>保存</span><kbd>Ctrl+S</kbd></button>
               <button class="menu-item" data-action="btn-save-as" data-needs-doc type="button"><span>另存为…</span><kbd></kbd></button>
@@ -228,7 +229,7 @@
         <button id="wc-open">打开文档</button>
       </div>
       <div id="wc-recent" class="recent-list hidden">
-        <div class="recent-title">最近打开</div>
+        <div class="recent-title" id="wc-recent-title">最近打开</div>
         <div id="wc-recent-items" class="recent-items"></div>
       </div>
     </div>
@@ -280,6 +281,31 @@
         <button id="btn-unsaved-cancel">取消</button>
         <button id="btn-unsaved-discard">废弃</button>
         <button id="btn-unsaved-save" class="primary">保留</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷打开（Ctrl+P）：最近打开过的文件，最多 30 条，按时间倒序 -->
+  <div id="quick-open-overlay" class="modal-overlay hidden">
+    <div class="modal quick-open-modal" role="dialog" aria-label="快捷打开">
+      <div class="quick-open-head">
+        <h3>快捷打开</h3>
+        <span class="quick-open-count" id="quick-open-count"></span>
+      </div>
+      <div class="quick-open-tabs" role="tablist">
+        <button class="quick-open-tab active" data-tab="time" type="button" role="tab" aria-selected="true">
+          最近打开 <span>时间由近及远</span>
+        </button>
+        <button class="quick-open-tab" data-tab="count" type="button" role="tab" aria-selected="false">
+          打开最多 <span>近 7 个记录日</span>
+        </button>
+      </div>
+      <input id="quick-open-input" class="quick-open-input" type="text"
+             placeholder="输入文件名或路径筛选…" spellcheck="false" autocomplete="off" />
+      <div id="quick-open-list" class="quick-open-list"></div>
+      <div class="quick-open-foot">
+        <span>↑ ↓ 选择 · Enter 打开 · Esc 关闭</span>
+        <button id="quick-open-clear" class="quick-open-clear" type="button" title="清空最近打开记录">清空记录</button>
       </div>
     </div>
   </div>

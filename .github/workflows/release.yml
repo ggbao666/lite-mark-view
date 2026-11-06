@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要构建到的版本标签（需已存在，如 v0.23.0）'
+        description: '要构建到的版本标签（需已存在，如 v0.24.0）'
         required: true
         type: string
 

@@ -1383,3 +1383,225 @@ body.source-mode #tb-link {
   border-radius: 5px;
   border: 2px solid var(--bg);
 }
+
+/* ===== 快捷打开弹窗（Ctrl+P）===== */
+.quick-open-modal {
+  width: 560px;
+  max-width: 90vw;
+  padding: 18px 20px 14px;
+}
+
+.quick-open-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.quick-open-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.quick-open-count {
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.quick-open-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.quick-open-tab {
+  flex: 1;
+  padding: 7px 8px 9px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 5px 5px 0 0;
+}
+
+.quick-open-tab span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.8;
+}
+
+.quick-open-tab:hover {
+  color: var(--fg);
+  background: var(--hover-bg);
+}
+
+.quick-open-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.quick-open-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 11px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--input-bg);
+}
+
+.quick-open-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.quick-open-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+}
+
+.quick-open-empty {
+  padding: 26px 10px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-soft);
+}
+
+.quick-open-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name time" "dir times";
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-open-item:hover {
+  background: var(--hover-bg);
+}
+
+.quick-open-item.active,
+.quick-open-item.active:hover {
+  background: var(--active-bg);
+}
+
+.quick-open-name {
+  grid-area: name;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-open-badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--hover-bg);
+  color: var(--fg-soft);
+  font-size: 10px;
+  font-weight: normal;
+  vertical-align: 1px;
+}
+
+.quick-open-time {
+  grid-area: time;
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.quick-open-dir {
+  grid-area: dir;
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-open-times {
+  grid-area: times;
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.quick-open-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-soft);
+}
+
+.quick-open-clear {
+  padding: 3px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.quick-open-clear:hover {
+  color: var(--fg);
+  background: var(--hover-bg);
+}
+
+/* 启动页最近列表：文件名一行，目录 + 打开时间一行 */
+.recent-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name name" "dir time";
+  align-items: center;
+  column-gap: 8px;
+}
+
+.recent-name {
+  grid-area: name;
+}
+
+.recent-dir {
+  grid-area: dir;
+  margin-top: 0;
+}
+
+.recent-time {
+  grid-area: time;
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}

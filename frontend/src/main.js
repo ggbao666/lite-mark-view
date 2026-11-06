@@ -1,11 +1,12 @@
 import './style.css'
 import { EditorView, keymap, Decoration } from '@codemirror/view'
-import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import { EditorState, StateEffect, StateField, Prec } from '@codemirror/state'
 import {
   history,
   defaultKeymap,
   historyKeymap,
   indentWithTab,
+  toggleComment,
 } from '@codemirror/commands'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -252,13 +253,33 @@ const findField = StateField.define({
 
 let sourceProgrammatic = false // 程序性改写（切模式/载入文件）不算源码编辑
 
+// Ctrl+/ 在本应用里统一表示「切换源码模式 / 所见即所得」。
+// CodeMirror 的 defaultKeymap 把 Mod-/ 绑成了 toggleComment：源码模式下按 Ctrl+/
+// 会先往正文插 <!-- … --> 注释，而 window 上的全局快捷键又同时切了模式，
+// 表现为「按切换键却插入注释」。这里摘掉默认绑定，换成最高优先级的模式切换；
+// stopPropagation 防止事件冒泡到 window 再切一次（切两次等于没切）。
+const cmKeymapWithoutComment = defaultKeymap.filter((b) => b.key !== 'Mod-/')
+const cmModeKeys = Prec.highest(
+  keymap.of([
+    {
+      key: 'Mod-/',
+      stopPropagation: true,
+      run: () => {
+        toggleEditorMode()
+        return true
+      },
+    },
+  ]),
+)
+
 const cmView = new EditorView({
   parent: elSource,
   state: EditorState.create({
     doc: '',
     extensions: [
       history(),
-      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      cmModeKeys,
+      keymap.of([...cmKeymapWithoutComment, ...historyKeymap, indentWithTab]),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(cmHighlight),
       EditorView.lineWrapping,
@@ -461,6 +482,13 @@ function scrollCaretToThird() {
   })
 }
 
+// Ctrl+/ 的统一入口：源码模式由 CodeMirror 的高优先级键位调用，其它场景由
+// window 上的全局快捷键调用。启动页 / 有模态框时不响应，避免切到看不见的源码视图。
+function toggleEditorMode() {
+  if (!docOpen || hasOpenModal()) return
+  setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg')
+}
+
 // ---------- 模式切换 ----------
 function setMode(next) {
   if (next === mode) return
@@ -515,9 +543,7 @@ function setMode(next) {
   if (findBarOpen()) computeFindMatches(0)
 }
 
-elModeBtn.addEventListener('click', () =>
-  setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg'),
-)
+elModeBtn.addEventListener('click', toggleEditorMode)
 
 // ---------- 查找 / 替换 ----------
 // 两种模式共用同一个面板：所见即所得用 ProseMirror 装饰高亮，源码模式用 CodeMirror 装饰
@@ -1157,23 +1183,70 @@ function hideWelcome() {
   wails()?.SetWindowMode(true) // 进入编辑：恢复常规大窗口
 }
 
-// 渲染最近打开的文件（点击直接打开）
-async function refreshRecentFiles() {
-  const app = wails()
-  let list = []
-  if (app) {
-    try {
-      list = (await app.GetRecentFiles()) || []
-    } catch {
-      list = []
-    }
+// ---------- 最近打开记录 ----------
+// 后端返回 {path, openedAt, openCount, daily:[{date,count}]}。
+// openCount 由「最近 7 个有打开记录的日子」里的 daily 加总而来；
+// 兼容旧版本 / bindings 里的纯字符串与大驼峰字段
+function normalizeRecent(item) {
+  if (typeof item === 'string') return { path: item, openedAt: 0, openCount: 1, daily: [] }
+  const raw = item?.daily ?? item?.Daily
+  const daily = (Array.isArray(raw) ? raw : [])
+    .map((d) => ({
+      date: String(d?.date ?? d?.Date ?? ''),
+      count: Number(d?.count ?? d?.Count ?? 0) || 0,
+    }))
+    .filter((d) => d.date && d.count > 0)
+  const sum = daily.reduce((n, d) => n + d.count, 0)
+  return {
+    path: item?.path || item?.Path || '',
+    openedAt: Number(item?.openedAt ?? item?.OpenedAt ?? 0) || 0,
+    openCount: Number(item?.openCount ?? item?.OpenCount ?? 0) || sum || 1,
+    daily,
   }
+}
+
+function samePath(a, b) {
+  if (!a || !b) return false
+  return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
+}
+
+// 打开时间显示成「今天 14:32 / 昨天 09:10 / 11月3日 / 2025/12/1」
+function formatRecentTime(ts) {
+  if (!ts || ts <= 0) return '时间未知'
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return '时间未知'
+  const now = new Date()
+  const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  const sameDay = (x, y) =>
+    x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate()
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (sameDay(d, now)) return `今天 ${hhmm}`
+  if (sameDay(d, yest)) return `昨天 ${hhmm}`
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}
+
+async function getRecentList() {
+  const app = wails()
+  if (!app) return []
+  try {
+    return ((await app.GetRecentFiles()) || []).map(normalizeRecent).filter((x) => x.path)
+  } catch {
+    return []
+  }
+}
+
+// 启动页只列出前 8 条，完整 30 条在「快捷打开」里
+async function refreshRecentFiles() {
+  const list = await getRecentList()
   recentItemsEl.innerHTML = ''
   if (!list.length) {
     recentListEl.classList.add('hidden')
     return
   }
-  for (const p of list) {
+  $('wc-recent-title').textContent = `最近打开（Ctrl+P 查看全部 ${list.length} 条）`
+  for (const item of list.slice(0, 8)) {
+    const p = item.path
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'recent-item'
@@ -1184,7 +1257,10 @@ async function refreshRecentFiles() {
     const dir = document.createElement('span')
     dir.className = 'recent-dir'
     dir.textContent = dirName(p)
-    btn.append(name, dir)
+    const time = document.createElement('span')
+    time.className = 'recent-time'
+    time.textContent = formatRecentTime(item.openedAt)
+    btn.append(name, dir, time)
     btn.addEventListener('click', () => openRecentFile(p))
     recentItemsEl.appendChild(btn)
   }
@@ -1200,6 +1276,193 @@ async function openRecentFile(path) {
     refreshRecentFiles()
   }
 }
+
+// ---------- 快捷打开（Ctrl+P）----------
+const quickOpenOverlay = $('quick-open-overlay')
+const quickOpenInput = $('quick-open-input')
+const quickOpenList = $('quick-open-list')
+const quickOpenCount = $('quick-open-count')
+const quickOpenClear = $('quick-open-clear')
+const quickOpenTabs = [...document.querySelectorAll('.quick-open-tab')]
+let quickOpenAll = []      // 全部记录
+let quickOpenItems = []    // 当前 tab + 搜索后的结果
+let quickOpenIndex = 0     // 键盘高亮项
+let quickOpenTab = 'time'  // 'time' 时间由近及远 | 'count' 按打开次数
+let quickOpenLoading = false
+let clearArmed = false
+let clearTimer = 0
+
+const isQuickOpenVisible = () => !quickOpenOverlay.classList.contains('hidden')
+
+// 每次打开弹窗都回到默认 tab：时间由近及远
+function setQuickOpenTab(tab) {
+  quickOpenTab = tab
+  quickOpenTabs.forEach((btn) => {
+    const active = btn.dataset.tab === tab
+    btn.classList.toggle('active', active)
+    btn.setAttribute('aria-selected', active ? 'true' : 'false')
+  })
+  if (isQuickOpenVisible()) renderQuickOpen()
+  quickOpenInput.focus()
+}
+
+// 两个 tab 各自排序；次数相同时再按最近打开时间排，时间相同时保持后端顺序
+function sortQuickOpen(list) {
+  return list.slice().sort((a, b) => {
+    if (quickOpenTab === 'count') {
+      return (b.openCount - a.openCount) || (b.openedAt - a.openedAt)
+    }
+    return b.openedAt - a.openedAt
+  })
+}
+
+function resetClearButton() {
+  clearTimeout(clearTimer)
+  clearArmed = false
+  quickOpenClear.textContent = '清空记录'
+}
+
+async function openQuickOpen() {
+  if (isQuickOpenVisible()) return
+  closeMenus()
+  resetClearButton()
+  setQuickOpenTab('time')
+  quickOpenInput.value = ''
+  quickOpenAll = []
+  quickOpenLoading = true
+  // 先显示弹窗，让全局快捷键立刻把后续按键挡在模态之外
+  quickOpenOverlay.classList.remove('hidden')
+  renderQuickOpen()
+  quickOpenInput.focus()
+  quickOpenAll = await getRecentList()
+  quickOpenLoading = false
+  if (isQuickOpenVisible()) renderQuickOpen()
+}
+
+function closeQuickOpen() {
+  quickOpenOverlay.classList.add('hidden')
+  quickOpenInput.blur()
+  resetClearButton()
+}
+
+function renderQuickOpen() {
+  const q = quickOpenInput.value.trim().toLowerCase()
+  const sorted = sortQuickOpen(quickOpenAll)
+  quickOpenItems = q
+    ? sorted.filter((it) => it.path.toLowerCase().includes(q))
+    : sorted
+  quickOpenIndex = 0
+  quickOpenList.innerHTML = ''
+  const order = quickOpenTab === 'count' ? '按次数' : '按时间'
+  quickOpenCount.textContent = quickOpenAll.length
+    ? `${order} · 近 7 个记录日 · ${q ? `${quickOpenItems.length} / ${quickOpenAll.length}` : `${quickOpenAll.length} / 30`} 条`
+    : ''
+  quickOpenCount.title = '只保留最近 7 个有打开记录的自然日；「打开最多」的次数由这些天的记录加总得出'
+  if (!quickOpenItems.length) {
+    const empty = document.createElement('div')
+    empty.className = 'quick-open-empty'
+    empty.textContent = quickOpenLoading
+      ? '正在读取最近记录…'
+      : q
+        ? '没有匹配的文件'
+        : '暂无最近打开的文件，先用「打开 Markdown…」打开一个吧'
+    quickOpenList.appendChild(empty)
+    return
+  }
+  quickOpenItems.forEach((it, i) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'quick-open-item' + (i === 0 ? ' active' : '')
+    btn.title = it.path
+    const name = document.createElement('span')
+    name.className = 'quick-open-name'
+    name.textContent = baseName(it.path)
+    if (samePath(it.path, currentPath)) {
+      const badge = document.createElement('span')
+      badge.className = 'quick-open-badge'
+      badge.textContent = '当前'
+      name.appendChild(badge)
+    }
+    const time = document.createElement('span')
+    time.className = 'quick-open-time'
+    time.textContent = formatRecentTime(it.openedAt)
+    const dir = document.createElement('span')
+    dir.className = 'quick-open-dir'
+    dir.textContent = dirName(it.path)
+    const count = document.createElement('span')
+    count.className = 'quick-open-times'
+    count.textContent = `${it.openCount || 1} 次`
+    // 悬停次数可看到分天明细：次数只统计最近 7 个有记录的日子
+    if (it.daily?.length) {
+      count.title = '近 7 个记录日：' + it.daily
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((d) => `${d.date.slice(5).replace('-', '/')} ${d.count} 次`)
+        .join(' · ')
+    }
+    btn.append(name, time, dir, count)
+    btn.addEventListener('click', () => chooseQuickOpen(i))
+    btn.addEventListener('mouseenter', () => setQuickOpenIndex(i))
+    quickOpenList.appendChild(btn)
+  })
+}
+
+function setQuickOpenIndex(i) {
+  const items = quickOpenList.querySelectorAll('.quick-open-item')
+  if (!items.length) return
+  quickOpenIndex = Math.max(0, Math.min(i, items.length - 1))
+  items.forEach((el, n) => el.classList.toggle('active', n === quickOpenIndex))
+  items[quickOpenIndex].scrollIntoView({ block: 'nearest' })
+}
+
+async function chooseQuickOpen(i) {
+  const it = quickOpenItems[i]
+  if (!it) return
+  closeQuickOpen()
+  // 选中的就是当前文档：只关掉弹窗，不重复新开窗口
+  if (samePath(it.path, currentPath)) return
+  await openRecentFile(it.path)
+}
+
+quickOpenTabs.forEach((btn) => {
+  btn.addEventListener('click', () => setQuickOpenTab(btn.dataset.tab))
+})
+quickOpenInput.addEventListener('input', renderQuickOpen)
+quickOpenInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!quickOpenItems.length) return
+    const delta = e.key === 'ArrowDown' ? 1 : -1
+    setQuickOpenIndex((quickOpenIndex + delta + quickOpenItems.length) % quickOpenItems.length)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    chooseQuickOpen(quickOpenIndex)
+  }
+})
+quickOpenOverlay.addEventListener('click', (e) => {
+  if (e.target === quickOpenOverlay) closeQuickOpen()
+})
+// 捕获阶段处理 Esc，保证焦点不在输入框时也能关闭
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isQuickOpenVisible()) closeQuickOpen()
+}, true)
+quickOpenClear.addEventListener('click', async () => {
+  if (!clearArmed) {
+    clearArmed = true
+    quickOpenClear.textContent = '确认清空？'
+    clearTimer = setTimeout(resetClearButton, 3000)
+    return
+  }
+  resetClearButton()
+  try {
+    await wails()?.ClearRecentFiles?.()
+  } catch {
+    /* 浏览器开发模式下没有 Wails runtime */
+  }
+  quickOpenAll = []
+  renderQuickOpen()
+  refreshRecentFiles()
+})
 
 $('wc-new').addEventListener('click', newDocument)
 $('wc-open').addEventListener('click', openFile)
@@ -1515,15 +1778,24 @@ window.addEventListener('keydown', (e) => {
   } else if (k === 'o') {
     e.preventDefault()
     openFile() // 含 Shift：一律新窗口
+  } else if (k === 'p') {
+    e.preventDefault()
+    openQuickOpen()
   } else if (k === 'f') {
     e.preventDefault()
     openFind(false)
   } else if (k === 'h') {
     e.preventDefault()
     openFind(true)
-  } else if (k === '/') {
+  } else if (k === '/' || k === '?') {
     e.preventDefault()
-    setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg')
+    if (e.shiftKey) {
+      // Ctrl+Shift+/：原 CodeMirror 的注释键位挪到这里，只在源码模式下生效
+      // （不同键盘布局下 Ctrl+Shift+/ 的 e.key 可能是 '/' 或 '?'，都兼容）
+      if (mode === 'source') toggleComment(cmView)
+    } else {
+      toggleEditorMode()
+    }
   }
 })
 
@@ -1714,12 +1986,13 @@ allMenus.forEach((menu) => {
 })
 
 const menuCommands = {
+  'quick-open': () => openQuickOpen(),
   'win-quit': () => window.runtime?.Quit?.(),
   'find-replace': () => openFind(true),
   undo: () => editor.chain().focus().undo().run(),
   redo: () => editor.chain().focus().redo().run(),
   // 这些按钮已从标题栏收进菜单，直接调用功能函数，不依赖隐藏按钮的 click 派发
-  'btn-mode': () => setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg'),
+  'btn-mode': () => toggleEditorMode(),
   'btn-outline': () => toggleOutline(),
   'btn-theme': () => toggleTheme(),
   'btn-settings': () => openSettings(),

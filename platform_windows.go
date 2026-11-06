@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -145,4 +147,71 @@ func (a *App) RevealInExplorer(path string) error {
 		return fmt.Errorf("文件不存在: %w", err)
 	}
 	return exec.Command("explorer", "/select,"+abs).Start()
+}
+
+// ===== 新窗口级联位置 =====
+// 每次新开 .md 都是独立进程，默认位置与旧窗口完全重叠；父进程会把自己的窗口位置
+// 通过 --cascade-from 传过来，新窗口据此往右下错开一点，一眼看出「这是新窗口」。
+const (
+	cascadeStepX = 40
+	cascadeStepY = 40
+	cascadeTitle = "LiteMark View"
+)
+
+type winRect struct {
+	Left, Top, Right, Bottom int32
+}
+
+var (
+	cascadeUser32            = windows.NewLazySystemDLL("user32.dll")
+	procEnumWindows          = cascadeUser32.NewProc("EnumWindows")
+	procIsWindowVisible      = cascadeUser32.NewProc("IsWindowVisible")
+	procGetWindowTextLengthW = cascadeUser32.NewProc("GetWindowTextLengthW")
+	procGetWindowTextW       = cascadeUser32.NewProc("GetWindowTextW")
+	procGetWindowRect        = cascadeUser32.NewProc("GetWindowRect")
+)
+
+func topWindowTitle(hwnd uintptr) string {
+	n, _, _ := procGetWindowTextLengthW.Call(hwnd)
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, n+1)
+	_, _, _ = procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(n+1))
+	return syscall.UTF16ToString(buf)
+}
+
+// nextWindowCascade 返回新窗口左上角坐标。优先用父进程传来的 fromX/fromY
+// （即「触发打开的那个窗口」），没有时（从资源管理器双击 .md）退而取 Z 序最顶层的主窗口。
+// 两个窗口都没有时 ok=false，保持系统默认位置。
+func nextWindowCascade(fromX, fromY int, hasFrom bool) (int, int, bool) {
+	type pos struct{ x, y int }
+	base := pos{}
+	found := false
+	if hasFrom {
+		base, found = pos{fromX, fromY}, true
+	} else {
+		cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+			if found {
+				return 0 // 已拿到最顶层的主窗口，停止枚举
+			}
+			visible, _, _ := procIsWindowVisible.Call(hwnd)
+			if visible == 0 || topWindowTitle(hwnd) != cascadeTitle {
+				return 1
+			}
+			var r winRect
+			ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+			if ok != 0 {
+				base, found = pos{int(r.Left), int(r.Top)}, true
+			}
+			return 1
+		})
+		_, _, _ = procEnumWindows.Call(cb, 0)
+	}
+	if !found {
+		return 0, 0, false
+	}
+	// 始终往右下错开。窗口右下角略超出屏幕是允许的，标题栏与左侧仍完整可见，
+	// 这样连续打开时能一直保持阶梯感，不会反向跳回旧窗口的位置。
+	return base.x + cascadeStepX, base.y + cascadeStepY, true
 }

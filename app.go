@@ -144,6 +144,22 @@ func (a *App) PickMarkdownPath() (string, error) {
 	})
 }
 
+// spawnWindow 另起一个进程开新窗口，并把「触发打开的本窗口」位置一并传过去，
+// 新窗口据此往右下错开，而不是和本窗口完全重叠。
+func (a *App) spawnWindow(args ...string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmdArgs := []string{"--new-window"}
+	if a.ctx != nil {
+		x, y := runtime.WindowGetPosition(a.ctx)
+		cmdArgs = append(cmdArgs, fmt.Sprintf("--cascade-from=%d,%d", x, y))
+	}
+	cmdArgs = append(cmdArgs, args...)
+	return exec.Command(exe, cmdArgs...).Start()
+}
+
 // OpenInNewWindow 在新窗口打开指定 .md 文件（另起一个进程，永不复用当前窗口）
 func (a *App) OpenInNewWindow(path string) error {
 	if path == "" {
@@ -152,11 +168,7 @@ func (a *App) OpenInNewWindow(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return exec.Command(exe, "--new-window", path).Start()
+	return a.spawnWindow(path)
 }
 
 // OpenContentInNewWindow 把只有内容、没有磁盘路径的 .md（WebView 拖放兜底）
