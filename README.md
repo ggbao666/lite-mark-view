@@ -102,32 +102,31 @@
 
 ## 构建
 
-依赖：Go 1.26+、Node.js 20+、[Wails v2 CLI](https://wails.io/)。Windows 另需 WebView2 运行时（Win10/11 一般已自带）；macOS 需 Xcode 命令行工具，且只支持 Apple Silicon（M 系列）芯片。
+依赖：Go 1.26+、Node.js 20+、[Wails v2 CLI](https://wails.io/)。Windows 另需 WebView2 运行时（Win10/11 一般已自带）。**官方 Release 只发布 Windows x64 安装包**；macOS 版不随发版分发，如有需要可本地自行构建（需 Xcode 命令行工具，仅支持 Apple Silicon）。
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
 cd frontend && npm install && cd ..
 
-wails build -platform windows/amd64   # Windows：build/bin/LiteMarkView.exe
-wails build -platform darwin/arm64    # macOS：  build/bin/LiteMarkView.app
+wails build -platform windows/amd64   # Windows：build/bin/LiteMarkView.exe（官方发行版）
+wails build -platform darwin/arm64    # macOS：  build/bin/LiteMarkView.app（仅本地自行构建）
 wails dev                            # 开发模式（前端热更新）
 ```
 
-macOS 版为 ad-hoc 签名、未做公证，首次打开若被 Gatekeeper 拦截，可在终端执行 `xattr -cr /Applications/LiteMarkView.app`，或右键应用 → 打开。
+本地构建的 macOS 版为 ad-hoc 签名、未做公证，首次打开若被 Gatekeeper 拦截，可在终端执行 `xattr -cr /Applications/LiteMarkView.app`，或右键应用 → 打开。
 
 ## 自动打包与发版
 
 仓库内置 GitHub Actions 工作流 [.github/workflows/release.yml](.github/workflows/release.yml)。**日常 push / PR 不触发任何构建**，只有推送 `v*` 版本标签（或在 Actions 里手动指定已有标签重跑）才会打包并发布 Release。
 
-每次发版并行构建两个平台，产物自动附加到该标签的 Release：
+每次发版只构建 Windows x64，产物自动附加到该标签的 Release：
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
 | Windows x64 | `LiteMarkView.exe` | 单文件，双击运行 |
-| macOS Apple Silicon | `LiteMarkView-macOS-arm64.dmg` | 仅 arm64，不含 Intel / universal |
 
-> 若 DMG 打包异常，工作流会自动改附 `LiteMarkView-macOS-arm64.zip`，解压后把 `LiteMarkView.app` 拖进「应用程序」即可。
+> 不再产出 macOS 安装包；如需 mac 版请按上文本地构建。
 
 发版步骤：先把 `wails.json` 的 `productVersion` 改成新版本号并提交，然后打标签推送：
 
@@ -136,7 +135,7 @@ git tag v0.22.0
 git push origin v0.22.0
 ```
 
-工作流会先创建 Release（自动生成更新说明），再上传两个安装包。若某个平台构建失败，在 Actions 里对同一标签手动重跑即可，产物会覆盖上传，无需重新打标签。
+工作流会先创建 Release（自动生成更新说明），再上传 Windows 安装包。若构建失败，在 Actions 里对同一标签手动重跑即可，产物会覆盖上传，无需重新打标签。
 
 ## 目录结构
 
@@ -163,7 +162,7 @@ litemark-view/
 
 ## 已知限制
 
-- 仅支持 Windows x64 与 macOS Apple Silicon（arm64），不提供 Intel Mac / Linux 安装包。
-- macOS 版未做开发者签名与公证，首次打开需手动允许；文件关联需在 Finder 的「打开方式」里手动选择（设置面板的「注册」会给出步骤）。
+- 官方 Release 仅提供 Windows x64 安装包；macOS Apple Silicon（arm64）只支持本地自行构建，不随发版分发；不提供 Intel Mac / Linux 安装包。
+- 本地构建的 macOS 版未做开发者签名与公证，首次打开需手动允许；文件关联需在 Finder 的「打开方式」里手动选择（设置面板的「注册」会给出步骤）。
 - 源码模式不做实时双向同步：在源码里修改后切回所见即所得时才会重新解析，以保证内容始终是文件原文。
 - 高亮（`==文字==`）、脚注、数学公式等常见 Markdown 扩展语法未实现。

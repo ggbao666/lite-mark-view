@@ -1,6 +1,6 @@
 name: Release
 
-# 只有发版本才打包：推送 v* 标签自动构建并发布，日常 push / PR 不触发。
+# 只有发版本才打包：推送 v* 标签自动构建并发布 Windows 包，日常 push / PR 不触发。
 # 也可在 Actions 里手动运行，指定一个已存在的标签重新补传产物。
 on:
   push:
@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 jobs:
-  # 先统一创建 Release，避免 Windows / macOS 两个构建任务同时 create 而冲突
+  # 先创建（或复用）Release，构建任务随后上传产物
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -99,69 +99,3 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: gh release upload "$env:TAG" build/bin/LiteMarkView.exe --clobber
-
-  build-macos:
-    needs: prepare
-    # macos-latest 当前为 macOS 26 / Apple Silicon (arm64)，不产出 Intel / universal 包。
-    # 注意：macos-14 镜像已于 2026-11-02 退役，不能再用。
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.ref }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
-
-      - name: Build macOS Apple Silicon
-        run: wails build -platform darwin/arm64 -clean
-
-      # Wails 用 wails.json 的 name 命名 bundle（litemark-view.app），这里自动查找并统一成产品名
-      - name: Package macOS app
-        id: package
-        run: |
-          ls -la build/bin
-          APP=""
-          for d in build/bin/*.app; do
-            if [ -d "$d" ]; then APP="$d"; break; fi
-          done
-          test -n "$APP" || { echo "::error::未找到 .app 产物"; exit 1; }
-          if [ "$APP" != "build/bin/LiteMarkView.app" ]; then
-            mv "$APP" build/bin/LiteMarkView.app
-          fi
-          if hdiutil create -volname "LiteMark View" \
-              -srcfolder build/bin/LiteMarkView.app \
-              -ov -format UDZO build/bin/LiteMarkView-macOS-arm64.dmg; then
-            echo "asset=LiteMarkView-macOS-arm64.dmg" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::DMG 生成失败，改用 zip 兜底"
-            ditto -c -k --keepParent build/bin/LiteMarkView.app build/bin/LiteMarkView-macOS-arm64.zip
-            echo "asset=LiteMarkView-macOS-arm64.zip" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: LiteMarkView-macos-arm64
-          path: build/bin/${{ steps.package.outputs.asset }}
-          if-no-files-found: error
-
-      - name: Attach macOS build to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" "build/bin/${{ steps.package.outputs.asset }}" --clobber
