@@ -211,6 +211,11 @@ func nextWindowCascade(fromX, fromY int, hasFrom bool) (int, int, bool) {
 	if !found {
 		return 0, 0, false
 	}
+	// 窗口最小化时 GetWindowRect / WindowGetPosition 会返回 -32000 左右的坐标，
+	// 直接偏移会让新窗口跑到屏幕外看不见；此时交回系统默认位置。
+	if base.x < -1000 || base.y < -1000 {
+		return 0, 0, false
+	}
 	// 始终往右下错开。窗口右下角略超出屏幕是允许的，标题栏与左侧仍完整可见，
 	// 这样连续打开时能一直保持阶梯感，不会反向跳回旧窗口的位置。
 	return base.x + cascadeStepX, base.y + cascadeStepY, true

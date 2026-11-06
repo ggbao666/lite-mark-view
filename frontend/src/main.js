@@ -1763,6 +1763,63 @@ $('btn-choose-dir').addEventListener('click', async () => {
   if (dir) inpCustomDir.value = dir
 })
 
+// ---------- 关于 ----------
+// 版本号由后端从 wails.json 读取，发版时只需改一处配置
+const aboutOverlay = $('about-overlay')
+const ABOUT_REPO_URL = 'https://github.com/ggbao666/lite-mark-view'
+
+async function openAbout() {
+  let info = null
+  const app = wails()
+  if (app) {
+    try {
+      info = await app.GetAppInfo()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+  $('about-name').textContent = info?.name || info?.Name || 'LiteMark View'
+  $('about-version').textContent = `v${info?.version || info?.Version || 'dev'}`
+  $('about-tech').textContent = info?.tech || info?.Tech || 'Go + Wails + Tiptap / CodeMirror'
+  const url = info?.repository || info?.Repository || ABOUT_REPO_URL
+  const link = $('about-repo')
+  link.textContent = url
+  link.href = url
+  link.dataset.url = url
+  aboutOverlay.classList.remove('hidden')
+  $('btn-about-close').focus()
+}
+
+function closeAbout() {
+  aboutOverlay.classList.add('hidden')
+}
+
+async function openAboutLink(e) {
+  e?.preventDefault()
+  const url = $('about-repo').dataset.url || ABOUT_REPO_URL
+  const app = wails()
+  if (app) {
+    try {
+      await app.OpenExternalLink(url) // 后端白名单校验后交给系统默认浏览器
+      return
+    } catch (err) {
+      console.error(err)
+    }
+  }
+  window.open(url, '_blank', 'noopener')
+}
+
+$('about-repo').addEventListener('click', openAboutLink)
+$('about-repo-btn').addEventListener('click', openAboutLink)
+$('btn-about-close').addEventListener('click', closeAbout)
+aboutOverlay.addEventListener('click', (e) => {
+  if (e.target === aboutOverlay) closeAbout()
+})
+// 捕获阶段处理 Esc，焦点在按钮/链接上时也能关闭
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !aboutOverlay.classList.contains('hidden')) closeAbout()
+}, true)
+
 // ---------- 全局快捷键 ----------
 // 有模态框打开时不响应，保证模态期间不能操作背后的编辑器
 const hasOpenModal = () => !!document.querySelector('.modal-overlay:not(.hidden)')
@@ -1985,7 +2042,22 @@ allMenus.forEach((menu) => {
   })
 })
 
+// 「编辑(E) → 选择全文」：一次把选区扩展到整篇文档。
+// 代码块内的 Ctrl+A 是递进式的（先选代码块、再按一次才选全文），这里不依赖按键次数；
+// 源码模式直接把 CodeMirror 的主选区设为全文，不滚动视口。
+function selectAllDocument() {
+  if (!docOpen) return
+  if (mode === 'source') {
+    cmView.focus()
+    cmView.dispatch({ selection: { anchor: 0, head: cmView.state.doc.length } })
+  } else {
+    editor.chain().focus().selectAll().run()
+  }
+}
+
 const menuCommands = {
+  about: () => openAbout(),
+  'select-all': () => selectAllDocument(),
   'quick-open': () => openQuickOpen(),
   'win-quit': () => window.runtime?.Quit?.(),
   'find-replace': () => openFind(true),

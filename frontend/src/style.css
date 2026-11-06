@@ -10,6 +10,7 @@
   --border: #e5e5e5;
   --accent: #4078c0;
   --code-bg: #f6f8fa;
+  --code-bar-bg: #eceff3;
   --quote-fg: #6a737d;
   --scrollbar-thumb: #d0d0d0;
   --shadow: rgba(0, 0, 0, 0.12);
@@ -38,6 +39,7 @@ body.dark {
   --border: #48494d;
   --accent: #4f8cc9;
   --code-bg: #353639;
+  --code-bar-bg: #2e2f32;
   --quote-fg: #969696;
   --scrollbar-thumb: #505256;
   --shadow: rgba(0, 0, 0, 0.45);
@@ -568,30 +570,39 @@ body.dark .source-editor .find-mark {
   font-size: inherit;
 }
 
-/* ===== 代码块：语言选择 / 复制 / 语法高亮 ===== */
+/* ===== 代码块：顶部工具条（语言 / 复制 / 删除）+ 语法高亮 ===== */
+/* 工具条独占一行、始终可见，不再 absolute 悬浮盖住第一行代码 */
 .code-block {
   position: relative;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .code-block-bar {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  justify-content: flex-end;
+  flex-wrap: wrap; /* 窄窗口时按钮换行，仍不会盖住代码 */
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--code-bar-bg);
+  border-bottom: 1px solid var(--border);
 }
 
-.code-block:hover .code-block-bar,
-.code-block:focus-within .code-block-bar {
-  opacity: 1;
+/* pre 的背景交给 .code-block，避免工具条与代码区之间出现割裂的圆角 */
+.code-block pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85em 1em;
 }
 
 .code-block-bar .code-lang,
-.code-block-bar .code-copy {
+.code-block-bar .code-copy,
+.code-block-bar .code-insert,
+.code-block-bar .code-del {
   height: 24px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -608,15 +619,23 @@ body.dark .source-editor .find-mark {
   max-width: 130px;
 }
 
-.code-block-bar .code-copy {
+.code-block-bar .code-copy,
+.code-block-bar .code-insert,
+.code-block-bar .code-del {
   padding: 0 8px;
   white-space: nowrap;
 }
 
 .code-block-bar .code-lang:hover,
-.code-block-bar .code-copy:hover {
+.code-block-bar .code-copy:hover,
+.code-block-bar .code-insert:hover {
   color: var(--fg);
   border-color: var(--accent);
+}
+
+.code-block-bar .code-del:hover {
+  color: #e5534b;
+  border-color: #e5534b;
 }
 
 .ProseMirror pre code .hljs-comment,
@@ -1014,6 +1033,73 @@ body.dark .find-match {
 
 .modal-actions button:hover {
   filter: brightness(0.97);
+}
+
+/* ===== 关于弹窗 ===== */
+.about-modal {
+  width: 430px;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.about-logo {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+  background: #3B82F6;
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.about-head h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.about-tagline {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-soft);
+}
+
+.about-info {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 10px 12px;
+  margin: 0 0 20px;
+  font-size: 13px;
+}
+
+.about-info dt {
+  color: var(--fg-soft);
+}
+
+.about-info dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.about-link,
+.about-link:visited {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+  cursor: pointer;
+}
+
+.about-link:hover {
+  filter: brightness(1.15);
 }
 
 /* 展开成原文时：语法标记灰色，可直接用光标选中/移动 */

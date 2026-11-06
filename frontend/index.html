@@ -29,6 +29,7 @@
               <button class="menu-item" data-action="undo" data-wysiwyg type="button"><span>撤销</span><kbd>Ctrl+Z</kbd></button>
               <button class="menu-item" data-action="redo" data-wysiwyg type="button"><span>重做</span><kbd>Ctrl+Y</kbd></button>
               <div class="menu-sep"></div>
+              <button class="menu-item" data-action="select-all" title="一次选中整篇文档；光标在代码块内也能直接选全文，源码模式同样可用" type="button"><span>选择全文</span><kbd></kbd></button>
               <button class="menu-item" data-action="btn-find" type="button"><span>查找</span><kbd>Ctrl+F</kbd></button>
               <button class="menu-item" data-action="find-replace" type="button"><span>查找 / 替换</span><kbd>Ctrl+H</kbd></button>
             </div>
@@ -54,6 +55,8 @@
               <button class="menu-item" data-action="btn-theme" type="button"><span>切换明暗主题</span><kbd></kbd></button>
               <div class="menu-sep"></div>
               <button class="menu-item" data-action="btn-settings" type="button"><span>设置…</span><kbd></kbd></button>
+              <div class="menu-sep"></div>
+              <button class="menu-item" data-action="about" type="button"><span>关于 LiteMark View…</span><kbd></kbd></button>
             </div>
           </div>
         </nav>
@@ -306,6 +309,30 @@
       <div class="quick-open-foot">
         <span>↑ ↓ 选择 · Enter 打开 · Esc 关闭</span>
         <button id="quick-open-clear" class="quick-open-clear" type="button" title="清空最近打开记录">清空记录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关于：版本号取自 wails.json，仓库地址用系统默认浏览器打开 -->
+  <div id="about-overlay" class="modal-overlay hidden">
+    <div class="modal about-modal" role="dialog" aria-label="关于 LiteMark View">
+      <div class="about-head">
+        <div class="about-logo">LM</div>
+        <div>
+          <h3 id="about-name">LiteMark View</h3>
+          <p class="about-tagline">轻量所见即所得 Markdown 编辑器</p>
+        </div>
+      </div>
+      <dl class="about-info">
+        <dt>版本</dt><dd id="about-version">—</dd>
+        <dt>技术栈</dt><dd id="about-tech">—</dd>
+        <dt>开源地址</dt>
+        <dd><a id="about-repo" class="about-link" href="https://github.com/ggbao666/lite-mark-view"
+               title="点击在系统默认浏览器中打开">https://github.com/ggbao666/lite-mark-view</a></dd>
+      </dl>
+      <div class="modal-actions">
+        <button id="btn-about-close" type="button">关闭</button>
+        <button id="about-repo-btn" class="primary" type="button">在浏览器中打开仓库</button>
       </div>
     </div>
   </div>

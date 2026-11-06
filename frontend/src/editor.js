@@ -456,8 +456,25 @@ const CODE_LANGUAGES = [
   ['diff', 'Diff'],
 ]
 
-// 代码块节点视图：右上角语言下拉 + 复制按钮（悬停/聚焦时出现）
+// 代码块节点视图：顶部独立工具条（语言 / 复制 / 上方插入 / 下方插入 / 删除），不悬浮遮挡代码
 const CodeBlockHighlight = CodeBlockLowlight.extend({
+  // 代码块内 Ctrl/Cmd+A 只选中当前代码块的内容，而不是整个文档。
+  // 已经选中整个代码块时再按一次，交回默认行为全选整篇（主流编辑器的递进式全选）。
+  addKeyboardShortcuts() {
+    return {
+      'Mod-a': () => {
+        const { selection } = this.editor.state
+        const { $from } = selection
+        if ($from.parent.type.name !== 'codeBlock') return false
+        const start = $from.start() // 代码块内容的起点
+        const end = $from.end()     // 代码块内容的终点
+        if (selection.from === start && selection.to === end) return false
+        this.editor.commands.setTextSelection({ from: start, to: end })
+        return true
+      },
+    }
+  },
+
   addNodeView() {
     return ({ node, getPos, editor: ed }) => {
       const wrap = document.createElement('div')
@@ -479,7 +496,22 @@ const CodeBlockHighlight = CodeBlockLowlight.extend({
       copyBtn.className = 'code-copy'
       copyBtn.textContent = '复制'
       copyBtn.title = '复制代码'
-      bar.append(langSelect, copyBtn)
+      const insertAboveBtn = document.createElement('button')
+      insertAboveBtn.type = 'button'
+      insertAboveBtn.className = 'code-insert'
+      insertAboveBtn.textContent = '上方插入'
+      insertAboveBtn.title = '在当前代码块上方插入一个空行，并把光标移过去'
+      const insertBelowBtn = document.createElement('button')
+      insertBelowBtn.type = 'button'
+      insertBelowBtn.className = 'code-insert'
+      insertBelowBtn.textContent = '下方插入'
+      insertBelowBtn.title = '在当前代码块下方插入一个空行，并把光标移过去'
+      const deleteBtn = document.createElement('button')
+      deleteBtn.type = 'button'
+      deleteBtn.className = 'code-del'
+      deleteBtn.textContent = '删除'
+      deleteBtn.title = '删除整个代码块（可 Ctrl+Z 撤销）'
+      bar.append(langSelect, copyBtn, insertAboveBtn, insertBelowBtn, deleteBtn)
       const pre = document.createElement('pre')
       const codeEl = document.createElement('code')
       pre.appendChild(codeEl)
@@ -537,6 +569,50 @@ const CodeBlockHighlight = CodeBlockLowlight.extend({
         setTimeout(() => {
           copyBtn.textContent = '复制'
         }, 1200)
+      })
+
+      // 在当前代码块上/下方插入一个空段落，并把光标放进去，方便直接在
+      // 两个相邻代码块之间写内容（那里没有可落光标的位置）。
+      const insertEmptyLine = (below) => {
+        if (typeof getPos !== 'function') return
+        const pos = getPos()
+        if (pos == null) return
+        const current = ed.state.doc.nodeAt(pos)
+        if (!current || current.type.name !== 'codeBlock') return
+        const at = below ? pos + current.nodeSize : pos
+        const tr = ed.state.tr.insert(at, ed.schema.nodes.paragraph.create())
+        tr.setSelection(TextSelection.create(tr.doc, at + 1))
+        tr.scrollIntoView()
+        ed.view.dispatch(tr)
+        ed.view.focus()
+      }
+      for (const [btn, below] of [
+        [insertAboveBtn, false],
+        [insertBelowBtn, true],
+      ]) {
+        btn.addEventListener('mousedown', (e) => e.preventDefault())
+        btn.addEventListener('click', () => insertEmptyLine(below))
+      }
+
+      // 删除整个 codeBlock 节点。优先真删除；若删完文档结构不再合法
+      // （它是唯一的块、或位于因此变空的引用里），退化成替换为空段落。
+      deleteBtn.addEventListener('mousedown', (e) => e.preventDefault())
+      deleteBtn.addEventListener('click', () => {
+        if (typeof getPos !== 'function') return
+        const pos = getPos()
+        if (pos == null) return
+        const current = ed.state.doc.nodeAt(pos)
+        if (!current || current.type.name !== 'codeBlock') return
+        const to = pos + current.nodeSize
+        let tr = ed.state.tr.delete(pos, to)
+        try {
+          tr.doc.check()
+        } catch {
+          tr = ed.state.tr.replaceWith(pos, to, ed.schema.nodes.paragraph.create())
+        }
+        tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(pos, tr.doc.content.size))))
+        ed.view.dispatch(tr)
+        ed.view.focus()
       })
 
       return {

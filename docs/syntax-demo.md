@@ -58,7 +58,7 @@
 ## 代码块
 
 ```js
-// 代码块带语法高亮，右上角可以切换语言、一键复制
+// 代码块带语法高亮，顶部工具条可切换语言、复制、上下插入空行、删除整个代码块
 const greeting = (name) => `Hello, ${name}!`
 console.log(greeting('LiteMark View'))
 ```
