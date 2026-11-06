@@ -1,4 +1,4 @@
-module typora-lite
+module litemark-view
 
 go 1.26.0
 

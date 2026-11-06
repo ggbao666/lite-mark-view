@@ -703,7 +703,7 @@ function openFind(withReplace = false) {
   replaceRow.classList.toggle('hidden', !withReplace)
   btnFindShowReplace.classList.toggle('active', withReplace)
   if (firstOpen) {
-    // 有选中文字时把它作为查找词（和 Typora 一致）
+    // 有选中文字时把它作为查找词（和主流所见即所得编辑器一致）
     try {
       let selected = ''
       if (mode === 'source') {
@@ -1114,7 +1114,7 @@ function jumpToHeading(item) {
 }
 
 // ---------- 文件操作 ----------
-// 应用打开的文件内容（对话框打开 / 单实例远程打开 / 启动参数 共用）
+// 把本窗口启动参数带入的文件内容载入（每个进程只负责自己的那个文件）
 function applyOpenedFile(data) {
   hideWelcome()
   clearTimeout(autoSaveTimer)
@@ -1145,11 +1145,13 @@ const recentItemsEl = $('wc-recent-items')
 
 function showWelcome() {
   welcomeScreen.classList.remove('hidden')
+  wails()?.SetWindowMode(false) // 启动页：小窗口
   refreshRecentFiles()
 }
 
 function hideWelcome() {
   welcomeScreen.classList.add('hidden')
+  wails()?.SetWindowMode(true) // 进入编辑：恢复常规大窗口
 }
 
 // 渲染最近打开的文件（点击直接打开）
@@ -1187,11 +1189,8 @@ async function refreshRecentFiles() {
 }
 
 async function openRecentFile(path) {
-  const app = wails()
-  if (!app) return
   try {
-    const data = await app.OpenPath(path)
-    applyOpenedFile(data)
+    await openMarkdownEntry({ path })
   } catch (e) {
     alert('打开失败：' + (e?.message || e))
     // 文件可能已被移动/删除，刷新列表
@@ -1210,85 +1209,29 @@ $('wc-settings').addEventListener('click', () => openSettings())
 const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif']
 
 let wailsDropHandled = false // wails 路径链路是否已处理本次拖入
-let pendingDrop = null // 询问打开方式时的待处理拖拽文件 {path, content, fileName}
 
-// 拖拽 md 的统一打开入口：
-// - 启动页（无编辑器打开）→ 直接当前窗口打开，不询问
-// - 已有编辑器 → 按设置的 openAction 分流（询问/当前窗口/新窗口）
-async function handleDroppedMarkdown(entry) {
+// 打开 .md 的统一入口：
+// - 启动页（还没有文档）→ 直接用当前窗口，不新起进程
+// - 已打开文档 → 一律新窗口，不覆盖当前内容
+async function openMarkdownEntry(entry) {
   const app = wails()
+  if (!app) return
   if (!docOpen) {
-    if (entry.path && app) {
-      const data = await app.OpenPath(entry.path)
-      applyOpenedFile(data)
-    } else {
-      applyOpenedFile(entry)
-    }
+    const data = entry.path ? await app.OpenPath(entry.path) : entry
+    applyOpenedFile(data)
     return
   }
-  let action = 'ask'
-  if (app) {
-    try {
-      action = (await app.GetSettings()).openAction || 'ask'
-    } catch {
-      /* 读取失败按询问处理 */
-    }
+  if (entry.path) {
+    await app.OpenInNewWindow(entry.path)
+  } else {
+    // 拿不到磁盘路径时（浏览器拖放兜底），把内容写入临时文件后交给新窗口
+    await app.OpenContentInNewWindow(entry.content ?? '', entry.fileName || '未命名.md')
   }
-  if (action === 'current' || !app) {
-    if (entry.path && app) {
-      const data = await app.OpenPath(entry.path)
-      applyOpenedFile(data)
-    } else {
-      applyOpenedFile(entry)
-    }
-    return
-  }
-  if (action === 'new') {
-    if (entry.path && app) {
-      await app.OpenInNewWindow(entry.path)
-    } else {
-      applyOpenedFile(entry) // 无真实路径时无法开新窗口
-    }
-    return
-  }
-  // ask：弹询问框
-  pendingDrop = entry
-  $('open-target-name').textContent = entry.path
-    ? baseName(entry.path)
-    : entry.fileName || '未命名文件'
-  $('btn-open-target-new').disabled = !entry.path
-  $('open-target-overlay').classList.remove('hidden')
 }
 
-const openTargetOverlay = $('open-target-overlay')
-$('btn-open-target-cancel').addEventListener('click', () => {
-  openTargetOverlay.classList.add('hidden')
-  pendingDrop = null
-})
-$('btn-open-target-current').addEventListener('click', async () => {
-  openTargetOverlay.classList.add('hidden')
-  const entry = pendingDrop
-  pendingDrop = null
-  if (!entry) return
-  const app = wails()
-  if (entry.path && app) {
-    try {
-      const data = await app.OpenPath(entry.path)
-      applyOpenedFile(data)
-    } catch (e) {
-      alert('打开失败: ' + e)
-    }
-  } else {
-    applyOpenedFile(entry)
-  }
-})
-$('btn-open-target-new').addEventListener('click', async () => {
-  openTargetOverlay.classList.add('hidden')
-  const entry = pendingDrop
-  pendingDrop = null
-  if (!entry) return
-  await wails()?.OpenInNewWindow(entry.path)
-})
+async function handleDroppedMarkdown(entry) {
+  await openMarkdownEntry(entry)
+}
 
 window.runtime?.EventsOn?.('wails:file-drop', async (x, y, paths) => {
   if (!paths || !paths.length) return
@@ -1296,7 +1239,7 @@ window.runtime?.EventsOn?.('wails:file-drop', async (x, y, paths) => {
   const app = wails()
   if (!app) return
 
-  // 优先处理拖入的 markdown 文件（走打开方式询问/分流）
+  // 优先处理拖入的 markdown 文件（一律新窗口）
   for (const p of paths) {
     const ext = (p.split('.').pop() || '').toLowerCase()
     if (ext === 'md' || ext === 'markdown') {
@@ -1329,8 +1272,8 @@ window.runtime?.EventsOn?.('wails:file-drop', async (x, y, paths) => {
 
 // ---------- 拖放保险层 ----------
 // wails 的拖放拦截依赖运行时注入，可能未激活；这里自行阻止 WebView
-// 默认行为（把 .md 当文本打开 / 弹浏览器），并在 wails 路径链路
-// 未生效时降级为按内容打开（丢失文件路径关联，提示用户另存）。
+// 默认行为（把 .md 当文本打开 / 弹浏览器）。wails 路径链路未生效时
+// 只能拿到文件内容（无路径），交给 Go 写入临时文件后同样在新窗口打开。
 const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')
 
 window.addEventListener(
@@ -1384,28 +1327,14 @@ window.addEventListener(
   { capture: true },
 )
 
+// 打开 .md（Ctrl+O / Ctrl+Shift+O）：启动页复用当前窗口，已有文档时新开窗口
 async function openFile() {
   const app = wails()
   if (!app) return
   try {
-    // 先选文件，再按设置的打开方式处理（询问 / 当前窗口 / 新窗口）
     const path = await app.PickMarkdownPath()
     if (!path) return
-    await handleDroppedMarkdown({ path })
-  } catch (e) {
-    console.error(e)
-    alert('打开失败: ' + e)
-  }
-}
-
-// 在新窗口打开（Ctrl+Shift+O）：选文件后起新实例，不弹单实例询问
-async function openFileInNewWindow() {
-  const app = wails()
-  if (!app) return
-  try {
-    const path = await app.PickMarkdownPath()
-    if (!path) return
-    await app.OpenInNewWindow(path)
+    await openMarkdownEntry({ path })
   } catch (e) {
     console.error(e)
     alert('打开失败: ' + e)
@@ -1512,7 +1441,6 @@ $('btn-theme').addEventListener('click', async () => {
       AssetMode: s.assetMode,
       AssetsFolder: s.assetsFolder,
       CustomDir: s.customDir,
-      OpenAction: s.openAction,
       Theme: next,
     })
   } catch (e) {
@@ -1529,7 +1457,6 @@ async function openSettings() {
     inpFolder.value = s.assetsFolder
     inpCustomDir.value = s.customDir || ''
     $('set-theme').value = s.theme || 'dark'
-    $('set-open-action').value = s.openAction || 'ask'
     refreshSettingsRows()
     overlay.classList.remove('hidden')
   } catch (e) {
@@ -1546,7 +1473,6 @@ async function saveSettings() {
       AssetMode: selMode.value,
       AssetsFolder: inpFolder.value.trim() || 'assets',
       CustomDir: inpCustomDir.value,
-      OpenAction: $('set-open-action').value,
       Theme: theme,
     })
     applyTheme(theme) // 立即生效
@@ -1584,8 +1510,7 @@ window.addEventListener('keydown', (e) => {
     saveDocument()
   } else if (k === 'o') {
     e.preventDefault()
-    if (e.shiftKey) openFileInNewWindow()
-    else openFile()
+    openFile() // 含 Shift：一律新窗口
   } else if (k === 'f') {
     e.preventDefault()
     openFind(false)
@@ -1700,9 +1625,6 @@ $('btn-exit-background').addEventListener('click', () => {
 
 // Go 侧关闭拦截 → 先处理未保存内容，再询问退出方式
 window.runtime?.EventsOn?.('close-requested', (hasTray) => onCloseRequested(hasTray))
-
-// 单实例：第二实例请求打开文件
-window.runtime?.EventsOn?.('open-file', (data) => applyOpenedFile(data))
 
 // 关闭到后台后再打开：回到启动页（不再显示上次关闭的文档）
 function resetToWelcome() {

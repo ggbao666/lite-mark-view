@@ -1,6 +1,6 @@
-# Typora Lite
+# LiteMark View
 
-一个用 **Go + Wails + Tiptap** 实现的轻量级 Markdown 编辑器，界面与交互参考 Typora：
+一个用 **Go + Wails + Tiptap** 实现的轻量级 Markdown 编辑器，界面与交互参考主流所见即所得编辑器：
 左侧工具栏 + 居中纸张排版，所见即所得编辑，随时切到源码模式查看/修改文件原文。
 
 ![启动页](docs/images/welcome-light.png)
@@ -29,9 +29,11 @@
 - **代码块语法高亮**：lowlight（highlight.js 词库），支持 20+ 语言，右上角可切换语言、一键复制。
 - **图片**：粘贴、拖拽图片自动落盘到资源目录，可右键放大查看（详见下一节）。
 - **大纲目录**：右侧可折叠面板；源码模式下按纯文本里的 `#` 行定位。
-- **明暗主题**：整套配色（含 Windows 原生标题栏）随之切换。
-- **文件能力**：打开 / 保存 / 另存为、标题栏点击重命名、2 秒防抖自动保存、最近打开、启动页、拖拽 `.md` 打开、注册 `.md` 文件关联、系统托盘常驻、多窗口打开。
-- **状态栏**：字数、当前模式、保存状态、文件所在目录，以及一键「打开所在目录」在资源管理器中定位当前文件。
+- **明暗主题**：整套配色（Windows 下含原生标题栏）随之切换。
+- **文件能力**：打开 / 保存 / 另存为、标题栏点击重命名、2 秒防抖自动保存、最近打开、启动页、拖拽 `.md` 打开、注册 `.md` 文件关联、系统托盘常驻（**双击托盘图标**可直接打开 / 唤出主窗口）。
+- **打开行为**：停在启动页时，打开文档 / 最近打开 / 拖入 `.md` 都直接**使用当前窗口**；已经打开文档后，再打开任何 `.md`（含双击文件关联）一律在**新窗口**，不会覆盖当前内容。设置里不再有「当前窗口 / 新窗口」选项，也不会弹询问框。
+- **窗口尺寸**：启动页是一个 460×500 的小窗口，进入编辑（打开或新建文档）后自动恢复 900×640；关闭到后台再唤出、回到启动页时也会缩回小窗口。
+- **状态栏**：字数、当前模式、保存状态、文件所在目录，以及一键「打开所在目录」在系统文件管理器中定位当前文件。
 
 ## 图片
 
@@ -92,8 +94,7 @@
 | 快捷键 | 功能 |
 | --- | --- |
 | `Ctrl + S` | 保存 |
-| `Ctrl + O` | 打开文件 |
-| `Ctrl + Shift + O` | 在新窗口打开文件 |
+| `Ctrl + O` / `Ctrl + Shift + O` | 打开文件（启动页用当前窗口，已有文档时新窗口） |
 | `Ctrl + F` | 查找 |
 | `Ctrl + H` | 查找 / 替换 |
 | `Ctrl + /` | 切换源码模式 / 所见即所得 |
@@ -101,39 +102,48 @@
 
 ## 构建
 
-依赖：Go 1.26+、Node.js 20+、[Wails v2 CLI](https://wails.io/)、WebView2 运行时（Windows 10/11 一般已自带）。
+依赖：Go 1.26+、Node.js 20+、[Wails v2 CLI](https://wails.io/)。Windows 另需 WebView2 运行时（Win10/11 一般已自带）；macOS 需 Xcode 命令行工具，且只支持 Apple Silicon（M 系列）芯片。
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
 cd frontend && npm install && cd ..
 
-wails build            # 产物：build/bin/TyporaLite.exe
-wails dev              # 开发模式（前端热更新）
+wails build -platform windows/amd64   # Windows：build/bin/LiteMarkView.exe
+wails build -platform darwin/arm64    # macOS：  build/bin/LiteMarkView.app
+wails dev                            # 开发模式（前端热更新）
 ```
 
-## 自动打包
+macOS 版为 ad-hoc 签名、未做公证，首次打开若被 Gatekeeper 拦截，可在终端执行 `xattr -cr /Applications/LiteMarkView.app`，或右键应用 → 打开。
 
-仓库内置 GitHub Actions 工作流 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)，只构建 Windows x64 版本：
+## 自动打包与发版
 
-- **推送到 `main`**：构建后自动发布 / 更新滚动 Release（固定标签 `latest`，每次覆盖上传最新的 `TyporaLite.exe`），下载地址固定为
-  `https://github.com/<owner>/<repo>/releases/download/latest/TyporaLite.exe`
-- **推送 `v*` 标签**：额外创建带版本号的正式 Release（自动生成更新说明），并附带 `TyporaLite.exe`。
-- **PR / 手动触发**：只构建并上传 artifact `TyporaLite-windows-amd64`，不发布 Release。
+仓库内置 GitHub Actions 工作流 [.github/workflows/release.yml](.github/workflows/release.yml)。**日常 push / PR 不触发任何构建**，只有推送 `v*` 版本标签（或在 Actions 里手动指定已有标签重跑）才会打包并发布 Release。
 
-发版只需：
+每次发版并行构建两个平台，产物自动附加到该标签的 Release：
+
+| 平台 | 产物 | 说明 |
+| --- | --- | --- |
+| Windows x64 | `LiteMarkView.exe` | 单文件，双击运行 |
+| macOS Apple Silicon | `LiteMarkView-macOS-arm64.dmg` | 仅 arm64，不含 Intel / universal |
+
+发版步骤：先把 `wails.json` 的 `productVersion` 改成新版本号并提交，然后打标签推送：
 
 ```bash
-git tag v0.21.5
-git push origin v0.21.5
+git tag v0.22.0
+git push origin v0.22.0
 ```
+
+工作流会先创建 Release（自动生成更新说明），再上传两个安装包。若某个平台构建失败，在 Actions 里对同一标签手动重跑即可，产物会覆盖上传，无需重新打标签。
 
 ## 目录结构
 
 ```
-typora-lite/
+litemark-view/
 ├─ app.go                # Wails 绑定：文件读写、图片存储、设置
 ├─ main.go               # 窗口、托盘、单实例、图片查看器
+├─ platform_windows.go   # 注册表文件关联、托盘 ico、资源管理器定位
+├─ platform_darwin.go    # Finder 定位、托盘 PNG、macOS 文件关联说明
 ├─ recent.go / settings.go
 ├─ frontend/
 │  ├─ index.html
@@ -146,11 +156,12 @@ typora-lite/
 ├─ docs/
 │  ├─ syntax-demo.md     # 全量语法示例（用于截图与自查）
 │  └─ images/            # README 截图与示例图片
-└─ .github/workflows/build-windows.yml
+└─ .github/workflows/release.yml
 ```
 
 ## 已知限制
 
-- 仅支持 Windows（依赖 Wails 的 Windows 窗口与托盘实现）。
+- 仅支持 Windows x64 与 macOS Apple Silicon（arm64），不提供 Intel Mac / Linux 安装包。
+- macOS 版未做开发者签名与公证，首次打开需手动允许；文件关联需在 Finder 的「打开方式」里手动选择（设置面板的「注册」会给出步骤）。
 - 源码模式不做实时双向同步：在源码里修改后切回所见即所得时才会重新解析，以保证内容始终是文件原文。
-- 高亮（`==文字==`）、脚注、数学公式等 Typora 扩展语法未实现。
+- 高亮（`==文字==`）、脚注、数学公式等常见 Markdown 扩展语法未实现。

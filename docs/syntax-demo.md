@@ -1,6 +1,6 @@
-# Typora Lite 语法演示
+# LiteMark View 语法演示
 
-这是一份用来展示 **Typora Lite** 支持的全部 Markdown 语法的示例文档。 把它拖进编辑器，或者用「打开」按钮打开，就能看到下面这些内容在所见即所得模式下的渲染效果。
+这是一份用来展示 **LiteMark View** 支持的全部 Markdown 语法的示例文档。 把它拖进编辑器，或者用「打开」按钮打开，就能看到下面这些内容在所见即所得模式下的渲染效果。
 
 ## 文本样式
 
@@ -60,7 +60,7 @@
 ```js
 // 代码块带语法高亮，右上角可以切换语言、一键复制
 const greeting = (name) => `Hello, ${name}!`
-console.log(greeting('Typora Lite'))
+console.log(greeting('LiteMark View'))
 ```
 
 ```go
@@ -69,7 +69,7 @@ package main
 import "fmt"
 
 func main() {
-	fmt.Println("Typora Lite")
+	fmt.Println("LiteMark View")
 }
 ```
 
@@ -81,7 +81,7 @@ def fib(n: int) -> int:
     return a
 ```
 
-访问 [Typora 官网](https://typora.io) 了解更多；直接粘贴 <https://github.com> 也会自动变成链接。
+访问 [Markdown 指南](https://www.markdownguide.org) 了解更多；直接粘贴 <https://github.com> 也会自动变成链接。
 
 ## 分隔线
 

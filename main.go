@@ -5,7 +5,6 @@ import (
 	"embed"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,8 +21,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed build/windows/icon.ico
-var trayIconBytes []byte // Windows 托盘要求 .ico 格式
+// 托盘图标 trayIconBytes 由 platform_windows.go / platform_darwin.go 按平台嵌入
 
 // nativeTheme 原生标题栏配色，和页面主题保持一致（COLORREF: 0x00BBGGRR）
 // 暗色：#2a2b2d 底 / #dcdcdc 字 / #48494d 边框；亮色：#ffffff 底 / #333333 字 / #e5e5e5 边框
@@ -51,6 +49,14 @@ var forceQuit = false
 // singleInstanceAddr 单实例通信地址：第二实例通过 HTTP 通知第一实例后退出
 const singleInstanceAddr = "127.0.0.1:27182"
 
+// 窗口尺寸：启动页用小窗口，打开文件 / 新建文档后恢复常规编辑窗口
+const (
+	welcomeWindowWidth  = 460
+	welcomeWindowHeight = 500
+	editorWindowWidth   = 900
+	editorWindowHeight  = 640
+)
+
 // localFileHandler 提供本地磁盘文件预览：
 // /local-file?path=<绝对路径> 用于在编辑器/查看器中显示本地图片
 func localFileHandler() http.Handler {
@@ -75,38 +81,39 @@ func localFileHandler() http.Handler {
 	})
 }
 
-// notifyExistingInstance 尝试通知已在运行的实例（打开文件或唤出窗口）。
+// notifyExistingInstance 通知已在运行的实例唤出窗口（仅无文件参数时使用）。
+// 打开 .md 一律起新进程，不再把文件转发给已有实例。
 // 校验专属响应头，防止端口被其他程序或调试残留进程占用时被误劫持。
-func notifyExistingInstance(path string) bool {
-	action := "/show"
-	if path != "" {
-		action = "/open?path=" + url.QueryEscape(path)
-	}
+func notifyExistingInstance() bool {
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + singleInstanceAddr + action)
+	resp, err := client.Get("http://" + singleInstanceAddr + "/show")
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK &&
-		resp.Header.Get("X-Typora-Lite") == "pong"
+		resp.Header.Get("X-LiteMark-View") == "pong"
 }
 
 // runTray 系统托盘：显示主窗口 / 完全退出
 func runTray(ctx context.Context, a *App) {
 	systray.Run(func() {
 		systray.SetIcon(trayIconBytes)
-		systray.SetTooltip("Typora Lite")
-		systray.SetTitle("Typora Lite")
-		mShow := systray.AddMenuItem("显示主窗口", "显示编辑器窗口")
-		systray.AddSeparator()
-		mQuit := systray.AddMenuItem("退出 Typora Lite", "完全退出软件")
-		mShow.Click(func() {
+		systray.SetTooltip("LiteMark View")
+		systray.SetTitle("LiteMark View")
+		show := func() {
 			if ctx != nil {
 				forceQuit = false
 				a.showMainWindow()
 			}
-		})
+		}
+		// 双击托盘图标：直接打开 / 唤出主窗口（关闭到后台时也能一键回来）
+		systray.SetOnDClick(func(_ systray.IMenu) { show() })
+
+		mShow := systray.AddMenuItem("显示主窗口", "显示编辑器窗口")
+		systray.AddSeparator()
+		mQuit := systray.AddMenuItem("退出 LiteMark View", "完全退出软件")
+		mShow.Click(func() { show() })
 		mQuit.Click(func() {
 			forceQuit = true
 			if ctx != nil {
@@ -173,7 +180,7 @@ func viewerAssetMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	// 查看器模式：TyporaLite.exe --image-viewer <图片路径>
+	// 查看器模式：LiteMarkView.exe --image-viewer <图片路径>
 	args := os.Args[1:]
 	if len(args) >= 2 && args[0] == "--image-viewer" {
 		viewerMode = true
@@ -200,17 +207,28 @@ func main() {
 	if err != nil {
 		if openPath == "" && !newWindowFlag {
 			// 无文件参数（直接双击 exe）→ 唤出已有窗口即可
-			if notifyExistingInstance("") {
+			if notifyExistingInstance() {
 				return
 			}
 		}
-		// 带文件（双击/右键打开方式）或明确新窗口 → 直接新窗口打开，不询问
+		// 带文件（双击/右键打开方式）、明确新窗口，或唤出失败 → 一律新开一个窗口
 		ln = nil
 	}
+
+	// 改名后把旧配置目录（设置 / 最近打开）迁移到新名字，避免丢数据
+	migrateLegacyConfigDir()
 
 	app := NewApp()
 	app.startupPath = openPath
 	app.ln = ln
+	// 带文件启动 = 一上来就是编辑态，直接用大窗口，避免闪一下小窗口
+	initW, initH := welcomeWindowWidth, welcomeWindowHeight
+	if openPath != "" {
+		initW, initH = editorWindowWidth, editorWindowHeight
+		app.windowMode = "editor"
+	} else {
+		app.windowMode = "welcome"
+	}
 
 	// 原生窗口主题跟随设置（默认暗色）
 	winTheme := windows.Dark
@@ -219,9 +237,9 @@ func main() {
 	}
 
 	err = wails.Run(&options.App{
-		Title:  "Typora Lite",
-		Width:  900,
-		Height: 640,
+		Title:  "LiteMark View",
+		Width:  initW,
+		Height: initH,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true, // 文件拖放统一由 wails 事件处理，避免 webview 直接打开

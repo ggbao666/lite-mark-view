@@ -21,11 +21,6 @@ type Settings struct {
 	//   "exit"       - 直接退出
 	//   "background" - 隐藏到系统托盘
 	CloseAction string `json:"closeAction"`
-	// OpenAction 已有实例运行时再次打开 .md 文件的行为：
-	//   "ask"     - 每次询问（默认）
-	//   "current" - 在当前窗口打开
-	//   "new"     - 在新窗口打开（多实例）
-	OpenAction string `json:"openAction"`
 	// Theme 界面主题："dark"（默认）| "light"
 	Theme string `json:"theme"`
 }
@@ -36,9 +31,26 @@ func DefaultSettings() Settings {
 		AssetsFolder: "assets",
 		CustomDir:    "",
 		CloseAction:  "ask",
-		OpenAction:   "ask",
 		Theme:        "dark",
 	}
+}
+
+// migrateLegacyConfigDir 首次以新名字启动时，把旧配置目录整体迁移过来，
+// 避免改名后丢失原有设置与最近打开记录。
+func migrateLegacyConfigDir() {
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	oldDir := filepath.Join(cfg, "TyporaLite")
+	newDir := filepath.Join(cfg, "LiteMarkView")
+	if _, err := os.Stat(newDir); err == nil {
+		return
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		return
+	}
+	_ = os.Rename(oldDir, newDir)
 }
 
 func configFilePath() (string, error) {
@@ -46,10 +58,11 @@ func configFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg, "TyporaLite", "settings.json"), nil
+	return filepath.Join(cfg, "LiteMarkView", "settings.json"), nil
 }
 
 // loadSettings 从磁盘读取设置；不存在或损坏时返回默认值
+// 说明：旧版本可能残留 openAction 字段，这里忽略即可（打开行为由启动页 / 编辑态决定）
 func loadSettings() Settings {
 	s := DefaultSettings()
 	path, err := configFilePath()
@@ -69,9 +82,6 @@ func loadSettings() Settings {
 	}
 	if s.CloseAction != "exit" && s.CloseAction != "background" {
 		s.CloseAction = "ask"
-	}
-	if s.OpenAction != "current" && s.OpenAction != "new" {
-		s.OpenAction = "ask"
 	}
 	if s.Theme != "light" {
 		s.Theme = "dark"
@@ -101,5 +111,5 @@ func DefaultAssetsDir() string {
 	if err != nil {
 		return "assets"
 	}
-	return filepath.Join(home, "Documents", "TyporaLite", "assets")
+	return filepath.Join(home, "Documents", "LiteMarkView", "assets")
 }

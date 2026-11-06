@@ -290,7 +290,7 @@ body.dark .source-editor .find-mark {
   background: rgba(79, 140, 201, 0.55);
 }
 
-/* ===== Tiptap 内容排版（Typora 风格） ===== */
+/* ===== Tiptap 内容排版（所见即所得风格） ===== */
 .ProseMirror {
   outline: none;
   line-height: 1.75;
@@ -992,15 +992,18 @@ body.source-mode #tb-link {
   inset: 0;
   background: var(--bg);
   display: flex;
-  align-items: center;
+  /* 启动页用小窗口：内容超高时不要裁掉顶部 */
+  align-items: safe center;
   justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
   z-index: 90;
 }
 
 .welcome-card {
   text-align: center;
   width: 420px;
-  max-width: 90vw;
+  max-width: 100%;
 }
 
 /* 启动页右上角：主题切换 / 设置 */

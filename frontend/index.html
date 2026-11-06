@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Typora Lite</title>
+  <title>LiteMark View</title>
 </head>
 <body>
   <div id="app">
     <header class="titlebar">
       <div class="title-left">
         <!-- 文件操作 -->
-        <button id="btn-open" class="icon-btn" title="打开 (Ctrl+O；按设置的打开方式处理)">
+        <button id="btn-open" class="icon-btn" title="打开 (Ctrl+O；启动页用当前窗口，已有文档时新窗口)">
           <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         </button>
         <button id="btn-save" class="icon-btn" title="保存 (Ctrl+S)">
@@ -132,39 +132,18 @@
           <option value="light">亮色</option>
         </select>
       </div>
-      <div class="form-row">
-        <label for="set-open-action">应用内已打开文档时，再打开其他 .md 文件（打开按钮 / 拖拽）</label>
-        <select id="set-open-action">
-          <option value="ask">每次询问（当前窗口 / 新窗口）</option>
-          <option value="current">总是在当前窗口打开</option>
-          <option value="new">总是在新窗口打开</option>
-        </select>
-      </div>
     <div class="form-row">
       <label>文件关联</label>
       <div class="dir-row">
-        <input type="text" readonly value="将 Typora Lite 加入 .md 文件的「打开方式」列表" />
+        <input type="text" readonly value="将 LiteMark View 加入 .md 文件的「打开方式」列表" />
         <button id="btn-register-md">注册</button>
       </div>
     </div>
-      <p class="hint">相对模式：图片存到当前文件同级目录的资源文件夹，Markdown 中以相对路径引用；文件未保存过时，存到「文档\TyporaLite\assets」。自定义模式：图片统一存到指定目录，以绝对路径引用。</p>
+      <p class="hint">相对模式：图片存到当前文件同级目录的资源文件夹，Markdown 中以相对路径引用；文件未保存过时，存到「文档\LiteMarkView\assets」。自定义模式：图片统一存到指定目录，以绝对路径引用。</p>
+      <p class="hint">启动页打开文档直接使用当前窗口；已打开文档后，再打开 .md 一律在新窗口，不覆盖当前文档。</p>
       <div class="modal-actions">
         <button id="btn-settings-cancel">取消</button>
         <button id="btn-settings-ok" class="primary">保存</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 拖拽打开方式询问 -->
-  <div id="open-target-overlay" class="modal-overlay hidden">
-    <div class="modal">
-      <h3>如何打开这个文件？</h3>
-      <p class="hint" id="open-target-name"></p>
-      <p class="hint">想修改默认行为，可到「设置」里调整。</p>
-      <div class="modal-actions">
-        <button id="btn-open-target-cancel">取消</button>
-        <button id="btn-open-target-new">新窗口打开</button>
-        <button id="btn-open-target-current" class="primary">当前窗口打开</button>
       </div>
     </div>
   </div>
@@ -181,7 +160,7 @@
       </button>
     </div>
     <div class="welcome-card">
-      <h1>Typora Lite</h1>
+      <h1>LiteMark View</h1>
       <p class="welcome-sub">简洁的 Markdown 编辑器</p>
       <div class="welcome-actions">
         <button id="wc-new" class="primary">新建空白文档</button>
@@ -197,7 +176,7 @@
   <!-- 关闭询问 -->
   <div id="exit-overlay" class="modal-overlay hidden">
     <div class="modal">
-      <h3>关闭 Typora Lite</h3>
+      <h3>关闭 LiteMark View</h3>
       <p class="hint">留在后台：软件驻留在系统托盘（屏幕右下角），双击 .md 文件可立即打开，速度更快；可随时从托盘菜单完全退出。</p>
       <label class="check-row">
         <input type="checkbox" id="exit-remember" />

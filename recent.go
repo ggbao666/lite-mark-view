@@ -19,7 +19,7 @@ func recentConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg, "TyporaLite", "recent.json"), nil
+	return filepath.Join(cfg, "LiteMarkView", "recent.json"), nil
 }
 
 // loadRecentList 读取最近打开列表，并过滤掉已被移动/删除的文件

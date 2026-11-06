@@ -48,7 +48,7 @@ function extractRemoteImageUrls(html) {
 // ---------- Markdown 原文展开 / 收回 ----------
 // 文档里存的是渲染后的结构（加粗是 mark）；光标靠近某段格式时，把它就地展开成
 // 真实的 Markdown 字符（** / * / ~~ / ` / [名称](地址)），光标可以停在任意字符之间
-// （包括收尾标记后面），和 Typora 一样；光标离开后再收回成格式。
+// （包括收尾标记后面），和主流所见即所得编辑器一样；光标离开后再收回成格式。
 
 const MARK_TOKENS = {
   bold: '**',
@@ -79,8 +79,8 @@ function isJustUndone(literal) {
 }
 
 // 找出文档里所有完整的 Markdown 原文片段（跳过代码块和已有格式的文本）
-// validate=true 时只保留 Markdown 语法合法的片段（和 Typora 一致：
-// 例如 * 强调 * 这种标记内侧有空格的写法 Typora 不会渲染，
+// validate=true 时只保留 Markdown 语法合法的片段（和主流所见即所得编辑器一致：
+// 例如 * 强调 * 这种标记内侧有空格的写法 所见即所得编辑器不会渲染，
 // 我们也不能半渲染，否则光标移动/点击内部格式时样式会突然变化）。
 function findLiterals(doc, editor, validate = true) {
   const found = []
@@ -233,7 +233,7 @@ function buildInlineSource(state, from, to, caret) {
   return { literal, pos }
 }
 
-// 格式 → 原文；光标停在任何位置都能编辑（和 Typora 一样）
+// 格式 → 原文；光标停在任何位置都能编辑（和主流所见即所得编辑器一样）
 // 注意：appendTransaction 返回事务后，本插件不会在同一轮里再被调用，
 // 所以这里要顺手把其它已展开的原文收回，避免连续点击多个格式时旧的展开残留。
 function expandMark(editor, state, info) {
@@ -270,7 +270,7 @@ function parseInlineFragment(editor, text) {
   }
 }
 
-// 解析结果里是否真的有对应格式；没有 → 语法不合法（Typora 同样保持普通文本）
+// 解析结果里是否真的有对应格式；没有 → 语法不合法（所见即所得编辑器同样保持普通文本）
 function literalMarksOk(frag, kind) {
   let ok = false
   frag.forEach((node) => {
@@ -665,7 +665,7 @@ export function createEditor(element, { onUpdate, getCurrentDir, uploadImage, do
       Bold.extend({ inclusive: false }),
       Italic.extend({ inclusive: false }),
       Strike.extend({ inclusive: false }),
-      // Tiptap 默认让行内代码排斥所有其他格式；但 Typora 里 **加粗里有 `代码`**
+      // Tiptap 默认让行内代码排斥所有其他格式；但所见即所得编辑器里 **加粗里有 `代码`**
       // 的行内代码仍是加粗的一部分，收回/展开/导出都要保持嵌套
       Code.extend({ inclusive: false, excludes: '' }),
       // 编辑时点击链接不跳转，避免 WebView 离开编辑器；inclusive=false 让链接结束后打字不再进链接

@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 )
 
 // FileData 前后端之间传递的文件内容
@@ -39,6 +37,7 @@ type App struct {
 	ln          net.Listener
 	settings    Settings // 应用设置
 	resetOnShow bool     // 关闭到后台后，下次显示窗口时回到启动页
+	windowMode  string   // 当前窗口模式："welcome" | "editor"
 }
 
 func NewApp() *App {
@@ -86,45 +85,39 @@ func (a *App) showMainWindow() {
 	runtime.WindowShow(a.ctx)
 }
 
-// serveSingleInstance 单实例服务：接收第二实例的打开文件/唤出窗口请求
+// SetWindowMode 按当前是否有文档切换窗口尺寸：启动页小窗、编辑态大窗。
+// 前端在显示 / 隐藏启动页时调用；模式未变化时不重复设置，避免覆盖用户手动调整的大小。
+func (a *App) SetWindowMode(hasDocument bool) {
+	if a.ctx == nil {
+		return
+	}
+	mode := "welcome"
+	w, h := welcomeWindowWidth, welcomeWindowHeight
+	if hasDocument {
+		mode = "editor"
+		w, h = editorWindowWidth, editorWindowHeight
+	}
+	if a.windowMode == mode {
+		return
+	}
+	a.windowMode = mode
+	runtime.WindowSetSize(a.ctx, w, h)
+	runtime.WindowCenter(a.ctx)
+}
+
+// serveSingleInstance 单实例服务：只处理「无文件参数时唤出已有窗口」。
+// 从已有窗口再打开 .md 一律交给新进程（新窗口），不把文件转发到当前窗口覆盖已有文档。
 func (a *App) serveSingleInstance() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/show", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Typora-Lite", "pong")
+		w.Header().Set("X-LiteMark-View", "pong")
 		a.showMainWindow()
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/open", func(w http.ResponseWriter, r *http.Request) {
-		p, err := url.QueryUnescape(r.URL.Query().Get("path"))
-		if err != nil || p == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if err := a.openFileInternal(p); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("X-Typora-Lite", "pong")
-		runtime.WindowShow(a.ctx)
 		w.WriteHeader(http.StatusOK)
 	})
 	_ = http.Serve(a.ln, mux)
 }
 
-// openFileInternal 读取文件并通知前端加载（单实例远程打开）
-func (a *App) openFileInternal(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	a.curPath = path
-	a.resetOnShow = false // 重新打开文件后不再回到启动页
-	addRecentFile(path)
-	runtime.EventsEmit(a.ctx, "open-file", FileData{Path: path, Content: string(data)})
-	return nil
-}
-
-// GetStartupFile 领取待打开的文件（命令行参数或单实例转发），取后清空
+// GetStartupFile 领取命令行带入的要打开的文件（双击 .md / 文件关联 / 新窗口），取后清空
 func (a *App) GetStartupFile() *FileData {
 	if a.startupPath == "" {
 		return nil
@@ -140,7 +133,7 @@ func (a *App) GetStartupFile() *FileData {
 	return &FileData{Path: p, Content: string(data)}
 }
 
-// PickMarkdownPath 只弹出选择对话框返回路径（不读取内容），供"在新窗口打开"使用
+// PickMarkdownPath 只弹出选择对话框返回路径（不读取内容），供「在新窗口打开」使用
 func (a *App) PickMarkdownPath() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "打开 Markdown 文件",
@@ -151,7 +144,7 @@ func (a *App) PickMarkdownPath() (string, error) {
 	})
 }
 
-// OpenInNewWindow 在新窗口打开指定 .md 文件（绕过单实例询问）
+// OpenInNewWindow 在新窗口打开指定 .md 文件（另起一个进程，永不复用当前窗口）
 func (a *App) OpenInNewWindow(path string) error {
 	if path == "" {
 		return nil // 用户取消选择
@@ -166,7 +159,39 @@ func (a *App) OpenInNewWindow(path string) error {
 	return exec.Command(exe, "--new-window", path).Start()
 }
 
-// OpenPath 直接按路径打开 .md 文件（拖拽打开）
+// OpenContentInNewWindow 把只有内容、没有磁盘路径的 .md（WebView 拖放兜底）
+// 先写入临时文件，再在新窗口打开，保证任何打开方式都不会覆盖当前窗口。
+func (a *App) OpenContentInNewWindow(content, name string) error {
+	name = filepath.Base(strings.TrimSpace(name))
+	name = strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`\/:*?"<>|`, r) {
+			return '-'
+		}
+		return r
+	}, name)
+	if name == "" || name == "." {
+		name = "未命名.md"
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != ".md" && ext != ".markdown" {
+		name += ".md"
+	}
+	dir := filepath.Join(os.TempDir(), "LiteMarkView")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	p := filepath.Join(dir, name)
+	if _, err := os.Stat(p); err == nil {
+		ext = filepath.Ext(name)
+		p = filepath.Join(dir, fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, ext), time.Now().UnixNano(), ext))
+	}
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		return err
+	}
+	return a.OpenInNewWindow(p)
+}
+
+// OpenPath 读取指定 .md 并返回内容；仅用于「启动页复用当前窗口」这一场景
 func (a *App) OpenPath(path string) (*FileData, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext != ".md" && ext != ".markdown" {
@@ -197,94 +222,6 @@ func (a *App) ImportImage(path string) (*SaveImageResult, error) {
 		return nil, err
 	}
 	return a.saveToAssets(data, ext)
-}
-
-// RegisterMdAssociation 把 Typora Lite 加入 .md 文件的“打开方式”列表。
-// 全部写 HKCU（免管理员），注册后通知资源管理器刷新关联缓存。
-func (a *App) RegisterMdAssociation() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	exe = filepath.Clean(exe)
-
-	const progID = "TyporaLite.md"
-	cmd := fmt.Sprintf(`"%s" "%%1"`, exe)
-
-	// 1) ProgID：打开命令 + 图标 + 友好名称
-	steps := []struct {
-		path  string
-		name  string
-		value string
-	}{
-		{`Software\Classes\` + progID, "", "Typora Lite Markdown"},
-		{`Software\Classes\` + progID, "FriendlyTypeName", "Typora Lite Markdown"},
-		{`Software\Classes\` + progID + `\DefaultIcon`, "", fmt.Sprintf(`"%s",0`, exe)},
-		{`Software\Classes\` + progID + `\shell\open\command`, "", cmd},
-		// 2) 应用注册：让“打开方式 / 选择其他应用”列表能稳定展示
-		{`Software\Classes\Applications\TyporaLite.exe`, "FriendlyAppName", "Typora Lite"},
-		{`Software\Classes\Applications\TyporaLite.exe\DefaultIcon`, "", fmt.Sprintf(`"%s",0`, exe)},
-		{`Software\Classes\Applications\TyporaLite.exe\shell\open\command`, "", cmd},
-		{`Software\Classes\Applications\TyporaLite.exe\SupportedTypes`, ".md", ""},
-		{`Software\Classes\Applications\TyporaLite.exe\SupportedTypes`, ".markdown", ""},
-	}
-	for _, s := range steps {
-		k, _, err := registry.CreateKey(registry.CURRENT_USER, s.path, registry.SET_VALUE)
-		if err != nil {
-			return "", fmt.Errorf("写入注册表失败(%s): %w", s.path, err)
-		}
-		err = k.SetStringValue(s.name, s.value)
-		k.Close()
-		if err != nil {
-			return "", fmt.Errorf("写入注册表值失败(%s / %s): %w", s.path, s.name, err)
-		}
-	}
-
-	// 3) .md\OpenWithProgids 必须是【子键】，子键下以 ProgID 命名的空值
-	for _, ext := range []string{".md", ".markdown"} {
-		kow, _, err := registry.CreateKey(
-			registry.CURRENT_USER,
-			`Software\Classes\`+ext+`\OpenWithProgids`,
-			registry.SET_VALUE,
-		)
-		if err != nil {
-			return "", fmt.Errorf("写入 OpenWithProgids 失败(%s): %w", ext, err)
-		}
-		err = kow.SetStringValue(progID, "")
-		kow.Close()
-		if err != nil {
-			return "", fmt.Errorf("写入 OpenWithProgids 值失败(%s): %w", ext, err)
-		}
-	}
-
-	// 清理旧版本误写在 .md 键下的同名多字符串值（错误结构，会导致识别异常）
-	for _, ext := range []string{".md", ".markdown"} {
-		kmd, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\`+ext, registry.SET_VALUE)
-		if err != nil {
-			continue
-		}
-		_ = kmd.DeleteValue("OpenWithProgids")
-		kmd.Close()
-	}
-
-	// 4) 通知资源管理器立即刷新文件关联（否则要重启 explorer 才生效）
-	notifyAssocChanged()
-
-	return "已注册成功。请右键 .md 文件 → 打开方式 → 选择其他应用，即可看到 Typora Lite。\n\n" +
-		"注意：若以后移动了本程序位置，需要重新点此注册。", nil
-}
-
-// SHChangeNotify：让资源管理器立即感知关联变化
-func notifyAssocChanged() {
-	const (
-		shcneAssocChanged = 0x08000000
-		shcnfIDList       = 0x0000
-	)
-	shell32 := windows.NewLazySystemDLL("shell32.dll")
-	proc := shell32.NewProc("SHChangeNotify")
-	if proc.Find() == nil {
-		_, _, _ = proc.Call(shcneAssocChanged, shcnfIDList, 0, 0)
-	}
 }
 
 // RenameFile 重命名当前打开的文件（只改主名，自动保留原扩展名），返回新路径
@@ -341,9 +278,6 @@ func (a *App) SaveSettings(s Settings) (Settings, error) {
 	}
 	if s.CloseAction != "exit" && s.CloseAction != "background" {
 		s.CloseAction = "ask"
-	}
-	if s.OpenAction != "current" && s.OpenAction != "new" {
-		s.OpenAction = "ask"
 	}
 	if s.Theme != "light" {
 		s.Theme = "dark"
@@ -537,18 +471,6 @@ func (a *App) ViewImage(path string) error {
 		return err
 	}
 	return exec.Command(exe, "--image-viewer", abs).Start()
-}
-
-// RevealInExplorer 在资源管理器中定位文件（图片、文档等）
-func (a *App) RevealInExplorer(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(abs); err != nil {
-		return fmt.Errorf("文件不存在: %w", err)
-	}
-	return exec.Command("explorer", "/select,"+abs).Start()
 }
 
 // ---------- 文件操作 ----------
