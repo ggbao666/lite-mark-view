@@ -133,6 +133,14 @@ body {
   display: none;
 }
 
+/* 主题 / 设置 / 源码模式已收进菜单：按钮 DOM 保留给菜单项触发，标题栏上不再显示 */
+#btn-mode,
+#btn-theme,
+#btn-settings,
+#btn-outline + .divider {
+  display: none;
+}
+
 .titlebar .divider {
   width: 1px;
   height: 16px;
@@ -233,6 +241,11 @@ body.welcome-mode #btn-outline {
 
 body.welcome-mode .title-center {
   visibility: hidden;
+}
+
+/* 启动页右侧只剩窗口按钮，不再留一条孤立的分隔线 */
+body.welcome-mode .title-right > .divider {
+  display: none;
 }
 
 body.welcome-mode [data-needs-doc],
@@ -362,8 +375,11 @@ body.source-mode .mode-toggle .icon-eye {
 }
 
 .title-center {
+  /* 文档名比左侧菜单更亮、更粗，避免和菜单文字混在一起 */
   font-size: 13px;
-  color: var(--fg-soft);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--fg);
   max-width: 40vw;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -376,7 +392,7 @@ body.source-mode .mode-toggle .icon-eye {
 }
 
 .title-center:hover {
-  color: var(--fg);
+  color: var(--accent);
 }
 
 /* 标题栏内联重命名输入框 */

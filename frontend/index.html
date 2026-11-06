@@ -42,8 +42,14 @@
           <div class="menu" data-menu="view">
             <button class="menu-label" type="button">视图(V)</button>
             <div class="menu-pop hidden">
-              <button class="menu-item" data-action="btn-mode" type="button"><span>切换源码模式</span><kbd>Ctrl+/</kbd></button>
+              <button class="menu-item" data-action="btn-mode" type="button"><span id="menu-mode-text">切换到源码模式</span><kbd>Ctrl+/</kbd></button>
               <button class="menu-item" data-action="btn-outline" type="button"><span>显示 / 隐藏大纲</span><kbd></kbd></button>
+            </div>
+          </div>
+          <!-- 工具菜单在启动页也常驻，保证主题与设置随时可用 -->
+          <div class="menu" data-menu="tools">
+            <button class="menu-label" type="button">工具(T)</button>
+            <div class="menu-pop hidden">
               <button class="menu-item" data-action="btn-theme" type="button"><span>切换明暗主题</span><kbd></kbd></button>
               <div class="menu-sep"></div>
               <button class="menu-item" data-action="btn-settings" type="button"><span>设置…</span><kbd></kbd></button>

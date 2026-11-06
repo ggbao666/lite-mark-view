@@ -1204,7 +1204,7 @@ async function openRecentFile(path) {
 $('wc-new').addEventListener('click', newDocument)
 $('wc-open').addEventListener('click', openFile)
 // 启动页右上角：复用顶部工具栏的主题/设置逻辑
-$('wc-theme').addEventListener('click', () => $('btn-theme').click())
+$('wc-theme').addEventListener('click', toggleTheme)
 $('wc-settings').addEventListener('click', () => openSettings())
 
 // wails 文件拖放：.md 打开文档，图片导入编辑器
@@ -1432,8 +1432,8 @@ function applyTheme(theme) {
   document.body.classList.toggle('dark', theme !== 'light')
 }
 
-// 标题栏快捷切换：取当前设置覆盖 Theme 后保存
-$('btn-theme').addEventListener('click', async () => {
+// 主题切换：菜单项与（已从标题栏收起的）按钮共用同一个函数
+async function toggleTheme() {
   const app = wails()
   const next = document.body.classList.contains('dark') ? 'light' : 'dark'
   applyTheme(next)
@@ -1449,7 +1449,8 @@ $('btn-theme').addEventListener('click', async () => {
   } catch (e) {
     console.error(e)
   }
-})
+}
+$('btn-theme').addEventListener('click', toggleTheme)
 
 async function openSettings() {
   const app = wails()
@@ -1666,6 +1667,20 @@ $('btn-register-md').addEventListener('click', async () => {
 const menuBar = $('menu-bar')
 const allMenus = [...menuBar.querySelectorAll('.menu')]
 
+// 源码模式按钮已收进菜单：菜单项文字随当前模式变化，避免「切回」时文案误导
+const menuModeText = $('menu-mode-text')
+function syncModeMenuText() {
+  if (!menuModeText) return
+  menuModeText.textContent = document.body.classList.contains('source-mode')
+    ? '切换到所见即所得'
+    : '切换到源码模式'
+}
+new MutationObserver(syncModeMenuText).observe(document.body, {
+  attributes: true,
+  attributeFilter: ['class'],
+})
+syncModeMenuText()
+
 function closeMenus() {
   allMenus.forEach((m) => {
     m.classList.remove('open')
@@ -1703,6 +1718,11 @@ const menuCommands = {
   'find-replace': () => openFind(true),
   undo: () => editor.chain().focus().undo().run(),
   redo: () => editor.chain().focus().redo().run(),
+  // 这些按钮已从标题栏收进菜单，直接调用功能函数，不依赖隐藏按钮的 click 派发
+  'btn-mode': () => setMode(mode === 'wysiwyg' ? 'source' : 'wysiwyg'),
+  'btn-outline': () => toggleOutline(),
+  'btn-theme': () => toggleTheme(),
+  'btn-settings': () => openSettings(),
 }
 
 menuBar.querySelectorAll('.menu-item').forEach((item) => {
@@ -1725,7 +1745,7 @@ window.addEventListener('keydown', (e) => {
     return
   }
   if (e.altKey && !e.ctrlKey && !e.metaKey) {
-    const map = { f: 'file', e: 'edit', i: 'insert', v: 'view' }
+    const map = { f: 'file', e: 'edit', i: 'insert', v: 'view', t: 'tools' }
     const name = map[e.key.toLowerCase()]
     if (name) {
       e.preventDefault()

@@ -30,7 +30,7 @@
 - **图片**：粘贴、拖拽图片自动落盘到资源目录，可右键放大查看（详见下一节）。
 - **大纲目录**：右侧可折叠面板；源码模式下按纯文本里的 `#` 行定位。
 - **明暗主题**：整套配色（含自绘标题栏）随之切换。
-- **单行标题栏**：窗口为无边框自绘，功能按「文件(F) / 编辑(E) / 插入(I) / 视图(V)」收进文字下拉菜单（支持 `Alt` + 字母直接展开）；右侧保留源码模式、大纲、主题、设置四个图标和最小化 / 最大化 / 关闭按钮，中间点击文档名可重命名。标题栏空白处可拖动窗口、双击切换最大化。关闭按钮与原生 `Alt+F4` 一样会先处理未保存内容再询问退出方式。
+- **单行标题栏**：窗口为无边框自绘，功能按「文件(F) / 编辑(E) / 插入(I) / 视图(V) / 工具(T)」收进文字下拉菜单（支持 `Alt` + 字母直接展开）；源码模式切换、大纲开关收在「视图(V)」，主题切换与设置收在常驻的「工具(T)」（启动页也能用），源码模式的菜单文案会随当前模式变为「切换到所见即所得」；右侧只保留大纲图标和最小化 / 最大化 / 关闭按钮，中间文档名以更亮、加粗的样式显示，点击可重命名。标题栏空白处可拖动窗口、双击切换最大化。关闭按钮与原生 `Alt+F4` 一样会先处理未保存内容再询问退出方式。
 - **文件能力**：打开 / 保存 / 另存为、标题栏点击重命名、2 秒防抖自动保存、最近打开、启动页、拖拽 `.md` 打开、注册 `.md` 文件关联、系统托盘常驻（**双击托盘图标**可直接打开 / 唤出主窗口）。
 - **打开行为**：停在启动页时，打开文档 / 最近打开 / 拖入 `.md` 都直接**使用当前窗口**；已经打开文档后，再打开任何 `.md`（含双击文件关联）一律在**新窗口**，不会覆盖当前内容。设置里不再有「当前窗口 / 新窗口」选项，也不会弹询问框。
 - **窗口尺寸**：启动页是一个 460×500 的小窗口，进入编辑（打开或新建文档）后自动恢复 900×640；关闭到后台再唤出、回到启动页时也会缩回小窗口。
@@ -105,14 +105,27 @@
 
 依赖：Go 1.26+、Node.js 20+、[Wails v2 CLI](https://wails.io/)。Windows 另需 WebView2 运行时（Win10/11 一般已自带）。**官方 Release 只发布 Windows x64 安装包**；macOS 版不随发版分发，如有需要可本地自行构建（需 Xcode 命令行工具，仅支持 Apple Silicon）。
 
+### 一键编译（推荐）
+
+| 平台 | 命令 | 产物 |
+| --- | --- | --- |
+| Windows | 双击 `build.bat`，或命令行 `build.bat -n`（`-n` 表示结尾不暂停） | `build/bin/LiteMarkView.exe` |
+| macOS / Linux / Git Bash | `./build.sh`（首次先执行 `chmod +x build.sh`） | `build/bin/LiteMarkView.app`（Windows Git Bash 下为 `.exe`） |
+
+脚本依次完成：检查 Go / Node / npm → 缺少 Wails CLI 时按 `go.mod` 里的版本自动 `go install` → 首次自动 `npm install` → 把旧 `frontend/dist` 移到临时目录再重新构建前端（避免残留的旧 hash 资源被打进程序里）→ `wails build -s`（跳过第二遍 Vite）。版本号统一取自 `wails.json`。
+
+如果 `LiteMarkView.exe` 正被运行中的程序占用，脚本**不会强杀进程**，新产物会保留为 `build/bin/LiteMarkView.new.exe`，关掉程序后手动替换即可。双击运行时窗口会在结尾暂停，方便查看结果或报错。
+
+### 手动构建（等价步骤）
+
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
-cd frontend && npm install && cd ..
+cd frontend && npm install && npm run build && cd ..
 
-wails build -platform windows/amd64   # Windows：build/bin/LiteMarkView.exe（官方发行版）
-wails build -platform darwin/arm64    # macOS：  build/bin/LiteMarkView.app（仅本地自行构建）
-wails dev                            # 开发模式（前端热更新）
+wails build -s -platform windows/amd64   # Windows：build/bin/LiteMarkView.exe（官方发行版）
+wails build -s -platform darwin/arm64    # macOS：  build/bin/LiteMarkView.app（仅本地自行构建）
+wails dev                                # 开发模式（前端热更新）
 ```
 
 本地构建的 macOS 版为 ad-hoc 签名、未做公证，首次打开若被 Gatekeeper 拦截，可在终端执行 `xattr -cr /Applications/LiteMarkView.app`，或右键应用 → 打开。
