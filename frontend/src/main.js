@@ -532,12 +532,15 @@ function setMode(next) {
     }
     scrollCaretToThird()
   }
-  // 按钮始终保持 SVG 图标，只切换高亮状态与提示文字
-  elModeBtn.classList.toggle('active', mode === 'source')
-  elModeBtn.title =
-    mode === 'source'
-      ? '切换到所见即所得 (Ctrl+/)'
-      : '切换到源码模式 (Ctrl+/)'
+  // 标题栏快捷按钮：切换图标（</> / 眼睛）、高亮状态与提示文字
+  const inSource = mode === 'source'
+  elModeBtn.classList.toggle('active', inSource)
+  elModeBtn.setAttribute('aria-pressed', String(inSource))
+  const modeHint = inSource
+    ? '切换到所见即所得，查看排版预览'
+    : '切换到源码模式，查看 Markdown 原文'
+  elModeBtn.title = `${modeHint} (Ctrl+/)`
+  elModeBtn.setAttribute('aria-label', modeHint)
   // 切换后按当前模式的文本重建大纲（源码模式按纯文本里的 # 行）
   refreshOutline()
   if (findBarOpen()) computeFindMatches(0)
@@ -1236,7 +1239,7 @@ async function getRecentList() {
   }
 }
 
-// 启动页只列出前 8 条，完整 30 条在「快捷打开」里
+// 启动页只列出前 8 条，够直接点开；完整 30 条在进入编辑后按 Ctrl+P 查看
 async function refreshRecentFiles() {
   const list = await getRecentList()
   recentItemsEl.innerHTML = ''
@@ -1244,7 +1247,7 @@ async function refreshRecentFiles() {
     recentListEl.classList.add('hidden')
     return
   }
-  $('wc-recent-title').textContent = `最近打开（Ctrl+P 查看全部 ${list.length} 条）`
+  $('wc-recent-title').textContent = '最近打开'
   for (const item of list.slice(0, 8)) {
     const p = item.path
     const btn = document.createElement('button')
@@ -1323,6 +1326,8 @@ function resetClearButton() {
 }
 
 async function openQuickOpen() {
+  // 快捷打开只在进入编辑（已打开文档）后可用；启动页下方已有最近列表
+  if (!docOpen) return
   if (isQuickOpenVisible()) return
   closeMenus()
   resetClearButton()
@@ -1856,9 +1861,8 @@ window.addEventListener('keydown', (e) => {
   }
 })
 
-// ---------- 关闭流程：未保存 → 询问「保留 / 废弃」；再按设置退出或留在后台 ----------
+// ---------- 关闭流程：未保存 → 询问「保留 / 废弃」；处理完直接退出进程 ----------
 const unsavedOverlay = $('unsaved-overlay')
-let closingWithTray = true
 
 function showUnsavedDialog() {
   $('unsaved-name').textContent = currentPath
@@ -1884,8 +1888,7 @@ async function flushAutoSave() {
   }
 }
 
-async function onCloseRequested(hasTray) {
-  closingWithTray = !!hasTray
+async function onCloseRequested() {
   if (!(await flushAutoSave())) {
     showUnsavedDialog()
     return
@@ -1893,23 +1896,9 @@ async function onCloseRequested(hasTray) {
   await finishClose()
 }
 
-// 未保存内容处理完（或本来就没有）后，按设置决定退出方式
-async function finishClose() {
-  const app = wails()
-  if (!app) return
-  if (!closingWithTray) {
-    app.ConfirmClose('exit', false) // 附属窗口没有托盘，直接退出
-    return
-  }
-  let action = 'ask'
-  try {
-    action = (await app.GetSettings()).closeAction || 'ask'
-  } catch {
-    /* 读取失败按询问处理 */
-  }
-  if (action === 'exit') app.ConfirmClose('exit', false)
-  else if (action === 'background') app.ConfirmClose('background', false)
-  else showExitDialog()
+// 未保存内容处理完（或本来就没有）后直接退出进程，不再有后台常驻
+function finishClose() {
+  wails()?.QuitApp()
 }
 
 $('btn-unsaved-cancel').addEventListener('click', () => unsavedOverlay.classList.add('hidden'))
@@ -1938,47 +1927,8 @@ $('btn-unsaved-save').addEventListener('click', async () => {
   await finishClose()
 })
 
-// ---------- 关闭询问（退出 / 留在后台托盘） ----------
-const exitOverlay = $('exit-overlay')
-
-function showExitDialog() {
-  $('exit-remember').checked = false
-  exitOverlay.classList.remove('hidden')
-}
-
-$('btn-exit-cancel').addEventListener('click', () => exitOverlay.classList.add('hidden'))
-$('btn-exit-quit').addEventListener('click', () => {
-  exitOverlay.classList.add('hidden')
-  wails()?.ConfirmClose('exit', $('exit-remember').checked)
-})
-$('btn-exit-background').addEventListener('click', () => {
-  exitOverlay.classList.add('hidden')
-  wails()?.ConfirmClose('background', $('exit-remember').checked)
-})
-
-// Go 侧关闭拦截 → 先处理未保存内容，再询问退出方式
-window.runtime?.EventsOn?.('close-requested', (hasTray) => onCloseRequested(hasTray))
-
-// 关闭到后台后再打开：回到启动页（不再显示上次关闭的文档）
-function resetToWelcome() {
-  clearTimeout(autoSaveTimer)
-  // 内容已自动保存（已命名的文件写盘），这里只清空界面与当前路径
-  currentPath = ''
-  dirty = false
-  docOpen = false
-  setMode('wysiwyg')
-  loadContent('')
-  refreshHeader()
-  wails()?.ClosePath()
-  showWelcome()
-}
-
-// 窗口被唤出（托盘/再次双击 exe）：
-// 关闭到后台的重开 → 启动页；尚未进入编辑状态 → 补显启动页
-window.runtime?.EventsOn?.('window-shown', (reset) => {
-  if (reset && docOpen) resetToWelcome()
-  else if (!docOpen) showWelcome()
-})
+// Go 侧关闭拦截 → 先处理未保存内容，然后直接退出进程（窗口关完即退出）
+window.runtime?.EventsOn?.('close-requested', () => onCloseRequested())
 
 // ---------- 设置面板加：注册 .md 文件关联 ----------
 $('btn-register-md').addEventListener('click', async () => {

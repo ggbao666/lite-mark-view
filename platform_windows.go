@@ -3,7 +3,6 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,9 +13,6 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
-
-//go:embed build/windows/icon.ico
-var trayIconBytes []byte // Windows 托盘要求 .ico 格式
 
 // RegisterMdAssociation 把 LiteMark View 加入 .md 文件的“打开方式”列表。
 // 全部写 HKCU（免管理员），注册后通知资源管理器刷新关联缓存。

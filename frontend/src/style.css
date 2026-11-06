@@ -135,12 +135,28 @@ body {
   display: none;
 }
 
-/* 主题 / 设置 / 源码模式已收进菜单：按钮 DOM 保留给菜单项触发，标题栏上不再显示 */
-#btn-mode,
+/* 主题 / 设置已收进菜单；源码模式保留为标题栏快捷图标，放在目录按钮左侧 */
 #btn-theme,
 #btn-settings,
 #btn-outline + .divider {
   display: none;
+}
+
+/* 源码模式快捷按钮：常态给一圈淡边框，和目录按钮区分开，进入源码模式后高亮 */
+.mode-toggle {
+  border: 1px solid var(--border);
+}
+
+/* 略大一号，让 </> 三个笔画在 32px 高的标题栏里也能一眼认清 */
+.mode-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mode-toggle.active {
+  border-color: var(--accent);
+  background: var(--active-bg);
+  color: var(--accent);
 }
 
 .titlebar .divider {
@@ -969,17 +985,6 @@ body.dark .find-match {
 .form-row input:focus {
   outline: none;
   border-color: var(--accent);
-}
-
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--fg);
-  margin: 12px 0 16px;
-  user-select: none;
-  cursor: pointer;
 }
 
 .dir-row {

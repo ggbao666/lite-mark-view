@@ -16,11 +16,6 @@ type Settings struct {
 	AssetsFolder string `json:"assetsFolder"`
 	// CustomDir 自定义存储目录
 	CustomDir string `json:"customDir"`
-	// CloseAction 点击窗口关闭按钮的行为：
-	//   "ask"        - 每次询问（默认）
-	//   "exit"       - 直接退出
-	//   "background" - 隐藏到系统托盘
-	CloseAction string `json:"closeAction"`
 	// Theme 界面主题："dark"（默认）| "light"
 	Theme string `json:"theme"`
 }
@@ -30,7 +25,6 @@ func DefaultSettings() Settings {
 		AssetMode:    "relative",
 		AssetsFolder: "assets",
 		CustomDir:    "",
-		CloseAction:  "ask",
 		Theme:        "dark",
 	}
 }
@@ -79,9 +73,6 @@ func loadSettings() Settings {
 	}
 	if s.AssetMode != "custom" && s.AssetMode != "relative" {
 		s.AssetMode = "relative"
-	}
-	if s.CloseAction != "exit" && s.CloseAction != "background" {
-		s.CloseAction = "ask"
 	}
 	if s.Theme != "light" {
 		s.Theme = "dark"

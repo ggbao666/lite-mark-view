@@ -3,15 +3,11 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
-
-//go:embed build/appicon.png
-var trayIconBytes []byte // macOS 菜单栏图标使用 PNG
 
 // RegisterMdAssociation macOS 没有注册表：文件关联由 Info.plist 与 Finder 管理，
 // 这里给出等价的手动设置说明，避免设置面板在 macOS 上报「不支持」错误。

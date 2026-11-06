@@ -14,7 +14,7 @@
           <div class="menu" data-menu="file">
             <button class="menu-label" type="button">文件(F)</button>
             <div class="menu-pop hidden">
-              <button class="menu-item" data-action="quick-open" type="button"><span>快捷打开…</span><kbd>Ctrl+P</kbd></button>
+              <button class="menu-item" data-action="quick-open" data-needs-doc type="button"><span>快捷打开…</span><kbd>Ctrl+P</kbd></button>
               <button class="menu-item" data-action="btn-open" type="button"><span>打开 Markdown…</span><kbd>Ctrl+O</kbd></button>
               <button class="menu-item" data-action="btn-save" data-needs-doc type="button"><span>保存</span><kbd>Ctrl+S</kbd></button>
               <button class="menu-item" data-action="btn-save-as" data-needs-doc type="button"><span>另存为…</span><kbd></kbd></button>
@@ -87,9 +87,9 @@
       </div>
       <div class="title-center" id="file-title">未命名</div>
       <div class="title-right">
-        <!-- 模式切换：所见即所得时显示代码图标，源码模式时显示眼睛图标 -->
-        <button id="btn-mode" class="icon-btn mode-toggle" title="切换到源码模式 (Ctrl+/)">
-          <svg class="icon-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <!-- 源码模式快捷按钮：所见即所得显示 </>（查看 Markdown 原文），源码模式显示眼睛（回到排版预览） -->
+        <button id="btn-mode" class="icon-btn mode-toggle" type="button" title="切换到源码模式，查看 Markdown 原文 (Ctrl+/)" aria-label="切换到源码模式，查看 Markdown 原文" aria-pressed="false">
+          <svg class="icon-code" viewBox="0 0 24 24"><polyline points="9 6 3.5 12 9 18"/><line x1="15.5" y1="4" x2="10.5" y2="20"/><polyline points="17 6 22.5 12 17 18"/></svg>
           <svg class="icon-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
         <button id="btn-outline" class="icon-btn" title="显示 / 隐藏目录大纲">
@@ -234,23 +234,6 @@
       <div id="wc-recent" class="recent-list hidden">
         <div class="recent-title" id="wc-recent-title">最近打开</div>
         <div id="wc-recent-items" class="recent-items"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 关闭询问 -->
-  <div id="exit-overlay" class="modal-overlay hidden">
-    <div class="modal">
-      <h3>关闭 LiteMark View</h3>
-      <p class="hint">留在后台：软件驻留在系统托盘（屏幕右下角），双击 .md 文件可立即打开，速度更快；可随时从托盘菜单完全退出。</p>
-      <label class="check-row">
-        <input type="checkbox" id="exit-remember" />
-        记住我的选择，下次不再询问
-      </label>
-      <div class="modal-actions">
-        <button id="btn-exit-cancel">取消</button>
-        <button id="btn-exit-background">留在后台</button>
-        <button id="btn-exit-quit" class="primary">退出软件</button>
       </div>
     </div>
   </div>

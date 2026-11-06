@@ -18,6 +18,18 @@ import { Markdown } from 'tiptap-markdown'
 
 const lowlight = createLowlight(common)
 
+// Tiptap 的 lowlight 插件在代码块没有指定语言（「纯文本」）时会调用
+// highlightAuto 猜语言并高亮，导致纯文本代码块仍被染色；这些 inline
+// decoration span 还会把鼠标反向拖选的选区截断在第一个 span 起点。
+// 关掉自动检测：无语言（含未知语言）时只返回纯文本节点，没有 class 就不生成
+// 任何 decoration，既不染色也不产生会截断选区的 span。只有节点上确实带语言
+// ——原文围栏写了 ```lang，或用户在工具条里选了——才走 lowlight.highlight 高亮。
+const lowlightNoAuto = Object.create(lowlight)
+lowlightNoAuto.highlightAuto = (value) => ({
+  type: 'root',
+  children: [{ type: 'text', value }],
+})
+
 // 本地图片显示地址转换：markdown 里的相对/绝对路径 → /local-file 预览地址
 function toDisplaySrc(src, getCurrentDir) {
   if (!src) return src
@@ -631,7 +643,7 @@ const CodeBlockHighlight = CodeBlockLowlight.extend({
       }
     }
   },
-}).configure({ lowlight, defaultLanguage: null, enableTabIndentation: true })
+}).configure({ lowlight: lowlightNoAuto, defaultLanguage: null, enableTabIndentation: true })
 
 // ---------- 查找高亮（装饰层，不影响文档内容） ----------
 const searchHighlightKey = new PluginKey('searchHighlight')

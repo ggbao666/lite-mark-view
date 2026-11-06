@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -21,8 +20,6 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-// 托盘图标 trayIconBytes 由 platform_windows.go / platform_darwin.go 按平台嵌入
 
 // nativeTheme 原生标题栏配色，和页面主题保持一致（COLORREF: 0x00BBGGRR）
 // 暗色：#2a2b2d 底 / #dcdcdc 字 / #48494d 边框；亮色：#ffffff 底 / #333333 字 / #e5e5e5 边框
@@ -44,7 +41,7 @@ var nativeTheme = &windows.ThemeSettings{
 // viewerMode 图片查看器进程模式（--image-viewer 启动时为 true）
 var viewerMode = false
 
-// forceQuit 托盘退出/用户确认退出时置位，绕过关闭拦截
+// forceQuit 用户确认退出时置位，绕过关闭前的未保存拦截
 var forceQuit = false
 
 // singleInstanceAddr 单实例通信地址：第二实例通过 HTTP 通知第一实例后退出
@@ -94,36 +91,6 @@ func notifyExistingInstance() bool {
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK &&
 		resp.Header.Get("X-LiteMark-View") == "pong"
-}
-
-// runTray 系统托盘：显示主窗口 / 完全退出
-func runTray(ctx context.Context, a *App) {
-	systray.Run(func() {
-		systray.SetIcon(trayIconBytes)
-		systray.SetTooltip("LiteMark View")
-		systray.SetTitle("LiteMark View")
-		show := func() {
-			if ctx != nil {
-				forceQuit = false
-				a.showMainWindow()
-			}
-		}
-		// 双击托盘图标：直接打开 / 唤出主窗口（关闭到后台时也能一键回来）
-		systray.SetOnDClick(func(_ systray.IMenu) { show() })
-
-		mShow := systray.AddMenuItem("显示主窗口", "显示编辑器窗口")
-		systray.AddSeparator()
-		mQuit := systray.AddMenuItem("退出 LiteMark View", "完全退出软件")
-		mShow.Click(func() { show() })
-		mQuit.Click(func() {
-			forceQuit = true
-			if ctx != nil {
-				wailsruntime.Quit(ctx)
-			} else {
-				os.Exit(0)
-			}
-		})
-	}, nil)
 }
 
 // Viewer 图片查看器窗口的绑定

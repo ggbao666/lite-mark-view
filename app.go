@@ -36,7 +36,6 @@ type App struct {
 	startupPath string // 命令行带入的要打开的文件路径
 	ln          net.Listener
 	settings    Settings // 应用设置
-	resetOnShow bool     // 关闭到后台后，下次显示窗口时回到启动页
 	windowMode  string   // 当前窗口模式："welcome" | "editor"
 }
 
@@ -46,42 +45,32 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// 单实例端口只用于「无文件参数双击 exe 时唤出已有窗口」；不再有托盘常驻。
 	if a.ln != nil {
 		go a.serveSingleInstance()
 	}
-	go runTray(ctx, a)
 }
 
-// beforeClose 拦截窗口关闭：先交给前端处理未保存内容，再决定退出 / 留在后台
+// beforeClose 拦截窗口关闭：先交给前端处理未保存内容，确认后整个进程退出
 func (a *App) beforeClose(ctx context.Context) bool {
 	if forceQuit {
 		return false
 	}
-	runtime.EventsEmit(ctx, "close-requested", a.ln != nil)
+	runtime.EventsEmit(ctx, "close-requested")
 	return true
 }
 
-// ConfirmClose 前端关闭询问的结果
-func (a *App) ConfirmClose(action string, remember bool) {
-	if remember && (action == "exit" || action == "background") {
-		a.settings.CloseAction = action
-		_ = saveSettingsToDisk(a.settings)
-	}
-	// 附属窗口实例（无托盘）只能退出，不能藏起来
-	if action == "exit" || a.ln == nil {
-		forceQuit = true
-		runtime.Quit(a.ctx)
-		return
-	}
-	a.resetOnShow = true
-	runtime.WindowHide(a.ctx)
+// QuitApp 前端处理完未保存内容后调用：直接退出进程，不留后台
+func (a *App) QuitApp() {
+	forceQuit = true
+	runtime.Quit(a.ctx)
 }
 
-// showMainWindow 显示主窗口；若是“关闭到后台”后重开，则让前端回到启动页
+// showMainWindow 唤出已有窗口（无文件参数双击 exe 时走单实例 /show）。
+// WindowShow 底层是 SW_SHOW，对最小化到任务栏的窗口无效，
+// 先 Unminimise(SW_RESTORE) 再 Show，保证一定能看见。
 func (a *App) showMainWindow() {
-	reset := a.resetOnShow
-	a.resetOnShow = false
-	runtime.EventsEmit(a.ctx, "window-shown", reset)
+	runtime.WindowUnminimise(a.ctx)
 	runtime.WindowShow(a.ctx)
 }
 
@@ -283,13 +272,6 @@ func (a *App) SaveSettings(s Settings) (Settings, error) {
 	}
 	if s.AssetMode != "custom" && s.AssetMode != "relative" {
 		s.AssetMode = "relative"
-	}
-	if s.CloseAction == "" {
-		// 前端保存其他设置时未带此字段 → 保留原有选择
-		s.CloseAction = a.settings.CloseAction
-	}
-	if s.CloseAction != "exit" && s.CloseAction != "background" {
-		s.CloseAction = "ask"
 	}
 	if s.Theme != "light" {
 		s.Theme = "dark"
