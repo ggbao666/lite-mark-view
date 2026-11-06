@@ -1145,12 +1145,15 @@ const recentItemsEl = $('wc-recent-items')
 
 function showWelcome() {
   welcomeScreen.classList.remove('hidden')
+  // 启动页：隐藏编辑类菜单与文档相关按钮，标题栏只留「文件」+ 主题/设置 + 窗口按钮
+  document.body.classList.add('welcome-mode')
   wails()?.SetWindowMode(false) // 启动页：小窗口
   refreshRecentFiles()
 }
 
 function hideWelcome() {
   welcomeScreen.classList.add('hidden')
+  document.body.classList.remove('welcome-mode')
   wails()?.SetWindowMode(true) // 进入编辑：恢复常规大窗口
 }
 
@@ -1658,6 +1661,104 @@ $('btn-register-md').addEventListener('click', async () => {
     alert('注册失败: ' + e)
   }
 })
+
+// ---------- 菜单栏（文件 / 编辑 / 插入 / 视图）与自绘窗口按钮 ----------
+const menuBar = $('menu-bar')
+const allMenus = [...menuBar.querySelectorAll('.menu')]
+
+function closeMenus() {
+  allMenus.forEach((m) => {
+    m.classList.remove('open')
+    m.querySelector('.menu-pop').classList.add('hidden')
+  })
+}
+
+function openMenu(menu) {
+  if (!menu) return
+  closeMenus()
+  const pop = menu.querySelector('.menu-pop')
+  const rect = menu.querySelector('.menu-label').getBoundingClientRect()
+  // fixed 定位，靠左对齐菜单标题；贴近右边缘时向内收，避免越出窗口
+  pop.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 232))}px`
+  pop.style.top = `${rect.bottom + 2}px`
+  pop.classList.remove('hidden')
+  menu.classList.add('open')
+}
+
+allMenus.forEach((menu) => {
+  const label = menu.querySelector('.menu-label')
+  label.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (menu.classList.contains('open')) closeMenus()
+    else openMenu(menu)
+  })
+  // 菜单已展开时，鼠标移到其他标题上直接切换
+  label.addEventListener('mouseenter', () => {
+    if (menuBar.querySelector('.menu.open') && !menu.classList.contains('open')) openMenu(menu)
+  })
+})
+
+const menuCommands = {
+  'win-quit': () => window.runtime?.Quit?.(),
+  'find-replace': () => openFind(true),
+  undo: () => editor.chain().focus().undo().run(),
+  redo: () => editor.chain().focus().redo().run(),
+}
+
+menuBar.querySelectorAll('.menu-item').forEach((item) => {
+  item.addEventListener('click', () => {
+    const action = item.dataset.action
+    closeMenus()
+    // 其余项复用原工具栏按钮上的事件（按钮 DOM 仍保留，只是不在界面显示）
+    if (menuCommands[action]) menuCommands[action]()
+    else $(action)?.click()
+  })
+})
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu-bar')) closeMenus()
+})
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeMenus()
+    return
+  }
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    const map = { f: 'file', e: 'edit', i: 'insert', v: 'view' }
+    const name = map[e.key.toLowerCase()]
+    if (name) {
+      e.preventDefault()
+      openMenu(menuBar.querySelector(`.menu[data-menu="${name}"]`))
+    }
+  }
+})
+
+// 双击标题栏空白处切换最大化（按钮上不触发）
+$('titlebar').addEventListener('dblclick', (e) => {
+  if (e.target.closest('button, input, .menu-pop')) return
+  window.runtime?.WindowToggleMaximise?.()
+})
+
+const winMaxBtn = $('btn-win-max')
+async function syncMaximizeButton() {
+  try {
+    const maxed = await window.runtime?.WindowIsMaximised?.()
+    winMaxBtn.classList.toggle('is-max', !!maxed)
+  } catch {
+    /* 浏览器开发模式下没有 Wails runtime */
+  }
+}
+
+$('btn-win-min').addEventListener('click', () => window.runtime?.WindowMinimise?.())
+winMaxBtn.addEventListener('click', () => {
+  window.runtime?.WindowToggleMaximise?.()
+  setTimeout(syncMaximizeButton, 120)
+})
+// 关闭走 runtime.Quit → 触发 Go 的 OnBeforeClose，复用「未保存 / 退出方式」询问流程
+$('btn-win-close').addEventListener('click', () => window.runtime?.Quit?.())
+window.addEventListener('resize', syncMaximizeButton)
+syncMaximizeButton()
 
 // ---------- 初始化 ----------
 async function init() {

@@ -240,6 +240,9 @@ func main() {
 		Title:  "LiteMark View",
 		Width:  initW,
 		Height: initH,
+		// 无边框：标题栏由前端自绘，功能按钮与窗口控制按钮合并成同一行。
+		// 不设置 DisableFramelessWindowDecorations，保留 Win11 圆角与投影。
+		Frameless: true,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true, // 文件拖放统一由 wails 事件处理，避免 webview 直接打开
